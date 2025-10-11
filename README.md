@@ -123,7 +123,7 @@ The platform demonstrates advanced signal processing techniques, AI-powered infe
 - **Advanced Visualization**:
   - Raw SAR intensity image display
   - Interactive histogram with frequency distribution
-  - Intensity-based thresholding 
+  - Threshold Filter (Adjust the slider to highlight pixels below a certain intensity)
 
 - **Feature Detection**:
   - Automated backscatter region identification
