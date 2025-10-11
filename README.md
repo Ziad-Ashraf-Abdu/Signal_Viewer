@@ -1,1 +1,176 @@
-[![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-22041afd0340ce965d47ae6ef1cefeee28c7c493a6346c4f15d667ab976d596c.svg)](https://classroom.github.com/a/Edij74kj)
+# Signal Viewer - Multi-Platform Signal Analysis 
+
+## Overview
+
+Signal Viewer is a comprehensive, modular Python-based web application suite built with Dash and Plotly that provides four specialized platforms for signal analysis, visualization, and processing. The system integrates cutting-edge technologies including deep learning models for medical diagnostics, interactive physics simulations, advanced image processing algorithms, and real-time audio classification. Each application operates independently while sharing a unified codebase architecture.
+
+The platform demonstrates advanced signal processing techniques, AI-powered inference, real-time visualization, and interactive data exploration across diverse domains.
+
+![Signal Viewer Dashboard](https://via.placeholder.com/1200x700?text=Signal+Viewer+Multi-Application+Platform)
+
+---
+
+## Applications
+
+### 1. Medical Signal Analysis (Medical.py)
+
+**Purpose**: Real-time visualization and AI-based classification of medical signals including ECG (electrocardiograms) and EEG (electroencephalograms) for clinical diagnostics and research.
+
+**Key Features**:
+
+- **Multi-Channel Signal Support**: Display and analyze up to 16+ simultaneous signal channels with synchronized timing
+- **Real-Time Playback**: Adjustable playback speeds (0.5x to 10x), pause/resume functionality, and sliding window display
+- **Four Visualization Modes**:
+  - ICU Monitor: Traditional clinical streaming display
+  - XOR: Comparative analysis of sequential signal segments
+  - Polar Coordinates: Phase relationship and amplitude cycle visualization
+  - Cross-Recurrence Plots: 2D amplitude co-occurrence heatmaps
+
+- **AI-Powered Classification**:
+  - HuBERT-ECG: 12-lead ECG analysis for cardiovascular conditions (MI, LVH, Short QT Syndrome, Arrhythmia)
+  - BIOT EEG-PREST: 16-channel EEG analysis for neurological condition detection (epilepsy, schizophrenia, Alzheimer's , Nacrolepsy)
+
+- **Signal Processing**: Automated filtering, QRS detection, RR interval calculation
+
+**Supported Signal Types**: 
+- ECG (single or multi-lead)
+- EEG (multi-channel with 16-channel optimization)
+
+**Output Formats**: Interactive web interface with real-time plots, and classification predictions
+
+![Medical Signal Interface](https://via.placeholder.com/1200x600?text=ECG+EEG+Real-Time+Monitoring+Interface)
+
+---
+
+### 2. Doppler Effect Simulator (doppler_app.py)
+
+**Purpose**: Interactive physics simulation demonstrating the Doppler effect with real-time frequency calculations, visual representation, and audio synthesis.
+
+**Key Features**:
+
+- **Interactive Physics Simulation**:
+  - Movable sound source (car/vehicle) with configurable speed and direction
+  - Movable observer position with independent motion parameters
+  - Real-time frequency calculation based on relative velocities
+
+- **Audio Integration**:
+  - Upload **audio recordings (WAV)** for automatic analysis  
+  - Detect the **dominant frequency** (pitch) from sound signals  
+  - Estimate the **velocity of moving sources** (e.g., cars) directly from audio  
+  - Real-time **sound synthesis** matching calculated Doppler frequencies  
+  - Smooth **frequency modulation** and **mute/unmute** controls  
+
+
+- **Mathematical Engine**:
+  - Accurate relativistic Doppler calculations
+  - Vector velocity decomposition
+  - Distance and angle calculations
+  - Radial velocity component extraction
+
+- **Visualization**:
+  - 2D coordinate system with source and observer positions
+  - Real-time frequency display
+  - Path trajectories for moving objects
+  - SVG vehicle graphics with orientation indicators
+
+- **Machine Learning & Audio Analysis**:
+  - Built-in **machine learning model** to estimate **vehicle velocity** from sound recordings   
+
+**Use Cases**: Physics education, Doppler effect demonstration, vehicle speed estimation from audio, audio frequency detection
+
+**Output Formats**: Interactive visualization, real-time audio synthesis, statistical reports
+
+![Doppler Simulator Interface](https://via.placeholder.com/1200x600?text=Doppler+Effect+Real-Time+Simulation)
+
+---
+
+### 3. SAR Data Analysis Platform (sar_app.py)
+
+**Purpose**: Advanced processing and analysis of Synthetic Aperture Radar (SAR) imagery with statistical analysis, and feature extraction.
+
+**Key Features**:
+
+- **SAR Image Processing**:
+  - Support for GeoTIFF, TIFF, PNG, JPG, and other raster formats
+  - Intensity distribution histogram computation
+  - Dynamic range and signal-to-noise ratio analysis
+  - Speckle noise characterization
+
+- **Statistical Analysis**:
+  - Mean, median, standard deviation, min/max intensity values
+  - Percentile calculations (1st and 99th percentile)
+  - Signal quality metrics
+
+- **Advanced Visualization**:
+  - Raw SAR intensity image display
+  - Interactive histogram with frequency distribution
+  - Intensity-based thresholding 
+
+- **Feature Detection**:
+  - Automated backscatter region identification
+  - High/low intensity region classification
+  - Signal variance calculation for texture complexity
+  - Dynamic range assessment
+
+- **Data Export**:
+  - CSV export of statistical summaries
+
+**Use Cases**: Geological mapping, urban planning, environmental monitoring, military reconnaissance, disaster assessment
+
+**Output Formats**: Statistical reports, feature extractions, intensity distributions
+
+![SAR Analysis Platform](https://via.placeholder.com/1200x600?text=SAR+Image+Analysis+Dashboard)
+
+---
+
+### 4. Drone Audio Detection System (app.py)
+
+**Purpose**: Real-time acoustic event detection and classification using deep learning models trained on drone sound signatures and acoustic patterns.
+
+**Key Features**:
+
+- **Audio File Upload**:
+  - Drag-and-drop interface for audio file loading
+  - Support for audio format (WAV)
+  - Automatic format conversion and resampling to 16kHz
+
+- **Waveform Visualization**:
+  - Interactive time-domain waveform display
+  - Amplitude-time relationship visualization
+  - Real-time audio player with playback controls
+
+- **Deep Learning Classification**:
+  - HuggingFace transformer models 
+  - Chunk-based processing (2-second windows) for long audio files
+  - Confidence scoring for predictions
+  - Multi-class classification output
+
+- **Model Information**:
+  - Automatic model download and caching
+  - GPU acceleration support (CUDA)
+  - Lazy loading for efficient resource management
+  - Model state management and threading safety
+
+- **Acoustic Analysis**:
+  - Frequency-domain analysis
+  - Acoustic event localization
+
+- **Results Display**:
+  - Top prediction with confidence percentage
+  - All classification scores with probability distributions
+  - Per-chunk analysis results
+    
+
+**Model Performance**: Optimized for drone detection with validation on multiple acoustic datasets
+
+**Use Cases**: Drone detection systems, acoustic surveillance, wildlife monitoring, environmental sound classification, security applications
+
+**Output Formats**: Classification predictions, audio waveforms, acoustic metrics, confidence distributions
+
+![Drone Audio Detection Interface](https://via.placeholder.com/1200x600?text=Drone+Audio+Classification+System)
+
+---
+
+
+
+
