@@ -43,7 +43,10 @@ The platform demonstrates advanced signal processing techniques, AI-powered infe
 **Output Formats**: Interactive web interface with real-time plots, and classification predictions
 
 ![Recording 2025-10-11 195402](https://github.com/user-attachments/assets/d85412e3-07db-4655-8543-e2514be08e6f)
-![Recording 2025-10-11 195927](https://github.com/user-attachments/assets/c3573ecd-4c4c-4d1e-a3dc-6f5bf56b9e5c)
+![Recording 2025-10-11 195927](https://github.com/user-attachments/assets/31704dbc-f738-43ec-bd16-255c77f0f0b6)
+![Recording 2025-10-11 200656](https://github.com/user-attachments/assets/76ce778a-4873-44eb-abff-120298f34d3f)
+![Recording 2025-10-11 200822](https://github.com/user-attachments/assets/1565259f-2ae9-4c47-a959-f96f38642579)
+
 
 
 
