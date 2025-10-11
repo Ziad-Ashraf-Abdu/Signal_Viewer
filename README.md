@@ -14,6 +14,12 @@ The platform demonstrates advanced signal processing techniques, AI-powered infe
 
 ### 1. Medical Signal Analysis (Medical.py)
 
+<img width="1580" height="722" alt="image" src="https://github.com/user-attachments/assets/9e57baa3-4522-4c71-ac03-3023adf41296" />
+
+<img width="1585" height="726" alt="image" src="https://github.com/user-attachments/assets/c881c300-3fe2-43a8-a45f-15ace629ac05" />
+
+
+
 **Purpose**: Real-time visualization and AI-based classification of medical signals including ECG (electrocardiograms) and EEG (electroencephalograms) for clinical diagnostics and research.
 
 **Key Features**:
@@ -40,9 +46,17 @@ The platform demonstrates advanced signal processing techniques, AI-powered infe
 
 ![Medical Signal Interface](https://via.placeholder.com/1200x600?text=ECG+EEG+Real-Time+Monitoring+Interface)
 
+
+
 ---
 
 ### 2. Doppler Effect Simulator (doppler_app.py)
+
+<img width="1587" height="727" alt="image" src="https://github.com/user-attachments/assets/0db1cba0-fa48-47ff-83d3-f44196fbf980" />
+<img width="1213" height="339" alt="image" src="https://github.com/user-attachments/assets/c8718ed9-4b4a-4ea7-80c8-0ad0562683b5" />
+<img width="1581" height="723" alt="image" src="https://github.com/user-attachments/assets/b9b72dec-58cd-4981-a011-3573bb5de557" />
+
+
 
 **Purpose**: Interactive physics simulation demonstrating the Doppler effect with real-time frequency calculations, visual representation, and audio synthesis.
 
@@ -80,7 +94,12 @@ The platform demonstrates advanced signal processing techniques, AI-powered infe
 
 **Output Formats**: Interactive visualization, real-time audio synthesis, statistical reports
 
-![Doppler Simulator Interface](https://via.placeholder.com/1200x600?text=Doppler+Effect+Real-Time+Simulation)
+<img width="1225" height="335" alt="image" src="https://github.com/user-attachments/assets/8fc66c9a-7bf9-4336-8842-2384923bcbdb" />
+
+
+![Dash-GoogleChrome2025-10-1119-10-25-ezgif com-video-to-gif-converter](https://github.com/user-attachments/assets/30a2ba43-12e8-40df-94c3-7a16775957de)
+
+
 
 ---
 
