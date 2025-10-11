@@ -125,6 +125,8 @@ The platform demonstrates advanced signal processing techniques, AI-powered infe
 
 ### 4. Drone Audio Detection System (app.py)
 
+---<img width="1218" height="495" alt="Screenshot 2025-10-11 183244" src="https://github.com/user-attachments/assets/42216304-b75d-476e-a8b3-3e5dcf307a69" />
+
 **Purpose**: Real-time acoustic event detection and classification using deep learning models trained on drone sound signatures and acoustic patterns.
 
 **Key Features**:
@@ -159,7 +161,11 @@ The platform demonstrates advanced signal processing techniques, AI-powered infe
   - Top prediction with confidence percentage
   - All classification scores with probability distributions
   - Per-chunk analysis results
-    
+
+    <img width="1584" height="724" alt="Screenshot 2025-10-11 184942" src="https://github.com/user-attachments/assets/209c67ea-b6eb-43c0-bdd7-44db65675409" />
+
+    <img width="1584" height="727" alt="Screenshot 2025-10-11 185006" src="https://github.com/user-attachments/assets/2c71241d-17c9-491c-89ce-47e85af0962c" />
+
 
 **Model Performance**: Optimized for drone detection with validation on multiple acoustic datasets
 
@@ -167,9 +173,8 @@ The platform demonstrates advanced signal processing techniques, AI-powered infe
 
 **Output Formats**: Classification predictions, audio waveforms, acoustic metrics, confidence distributions
 
-![Drone Audio Detection Interface](https://via.placeholder.com/1200x600?text=Drone+Audio+Classification+System)
 
----
+
 
 
 
