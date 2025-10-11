@@ -31,7 +31,7 @@ The platform demonstrates advanced signal processing techniques, AI-powered infe
   - Cross-Recurrence Plots: 2D amplitude co-occurrence heatmaps
 
 - **AI-Powered Classification**:
-  - HuBERT-ECG: 12-lead ECG analysis for cardiovascular conditions (MI, LVH, Short QT Syndrome, Arrhythmia)
+  - HuBERT-ECG: 12-lead ECG analysis for cardiovascular conditions (MI, LVH, Hypertrophy, Arrhythmia)
   - BIOT EEG-PREST: 16-channel EEG analysis for neurological condition detection (epilepsy, schizophrenia, Alzheimer's , Nacrolepsy)
 
 - **Signal Processing**: Automated filtering, QRS detection, RR interval calculation
@@ -42,11 +42,33 @@ The platform demonstrates advanced signal processing techniques, AI-powered infe
 
 **Output Formats**: Interactive web interface with real-time plots, and classification predictions
 
-![Recording 2025-10-11 195402](https://github.com/user-attachments/assets/d85412e3-07db-4655-8543-e2514be08e6f)
-![Recording 2025-10-11 195927](https://github.com/user-attachments/assets/31704dbc-f738-43ec-bd16-255c77f0f0b6)
-![Recording 2025-10-11 200656](https://github.com/user-attachments/assets/76ce778a-4873-44eb-abff-120298f34d3f)
-![Recording 2025-10-11 200822](https://github.com/user-attachments/assets/1565259f-2ae9-4c47-a959-f96f38642579)
+### Myocardial Infarction
+<table>
+  <tr>
+    <td><img src="https://github.com/user-attachments/assets/55a9791c-51a9-48b0-9df8-ee4788489c04" width="450"></td>
+    <td><img src="https://github.com/user-attachments/assets/fbe6e20e-5c19-4565-a782-75bd084962f0" width="450"></td>
+  </tr>
+  <tr>
+    <td><img src="https://github.com/user-attachments/assets/fd03d3c1-571f-44a3-8cd7-0b5d7742b980" width="450"></td>
+    <td><img src="https://github.com/user-attachments/assets/f16078be-9f50-4578-bd28-3aa7ca983a07" width="450"></td>
+  </tr>
+</table>
 
+<img width="1896" height="903" alt="Screenshot 2025-10-11 202403" src="https://github.com/user-attachments/assets/12f5cc27-b9e3-4f11-aeee-b01f9a933a8f" />
+
+### Schizophrenia
+<table>
+  <tr>
+    <td><img src="https://github.com/user-attachments/assets/304dccdd-2291-4ec5-bd8d-792c195d0751" width="500"></td>
+    <td><img src="https://github.com/user-attachments/assets/8198c32f-39df-4591-888c-1f71ca057507" width="500"></td>
+  </tr>
+  <tr>
+    <td><img src="https://github.com/user-attachments/assets/9d6729aa-93f7-4cf3-9ce0-5589cc4c7553" width="500"></td>
+    <td><img src="https://github.com/user-attachments/assets/3a633da6-c6af-4c35-8ba8-864d87f2e0ae" width="500"></td>
+  </tr>
+</table>
+
+<img width="1883" height="911" alt="Screenshot 2025-10-11 202608" src="https://github.com/user-attachments/assets/93edf4f3-9a61-4b81-bf29-6213e43dd08c" />
 
 
 
