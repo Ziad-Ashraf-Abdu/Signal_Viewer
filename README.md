@@ -72,13 +72,14 @@ The platform demonstrates advanced signal processing techniques, AI-powered infe
   - Movable sound source (car/vehicle) with configurable speed and direction
   - Movable observer position with independent motion parameters
   - Real-time frequency calculation based on relative velocities
-  - Visual representation of sound wavefronts propagating from source
 
 - **Audio Integration**:
-  - Automatic frequency detection from uploaded audio files
-  - Real-time sound synthesis matching calculated Doppler frequency
-  - Mutable audio output with frequency smoothing
-  - Support for various audio formats (WAV, MP3)
+- Upload **audio recordings (WAV)** for automatic analysis  
+- Detect the **dominant frequency** (pitch) from sound signals  
+- Estimate the **velocity of moving sources** (e.g., cars) directly from audio  
+- Real-time **sound synthesis** matching calculated Doppler frequencies  
+- Smooth **frequency modulation** and **mute/unmute** controls  
+
 
 - **Mathematical Engine**:
   - Accurate relativistic Doppler calculations
@@ -88,17 +89,14 @@ The platform demonstrates advanced signal processing techniques, AI-powered infe
 
 - **Visualization**:
   - 2D coordinate system with source and observer positions
-  - Animated sound wavefronts
-  - Real-time frequency display with color-coded updates
+  - Real-time frequency display
   - Path trajectories for moving objects
   - SVG vehicle graphics with orientation indicators
 
-- **Data Analysis**:
-  - HDF5 dataset support for vehicle speed estimations
-  - Statistical analysis of speed estimates (mode, mean, distribution)
-  - Metadata extraction from file names
+- **Machine Learning & Audio Analysis**:
+  - Built-in **machine learning model** to estimate **vehicle velocity** from sound recordings   
 
-**Use Cases**: Physics education, Doppler effect demonstration, vehicle speed analysis, audio frequency manipulation
+**Use Cases**: Physics education, Doppler effect demonstration, vehicle speed estimation from audio, audio frequency detection
 
 **Output Formats**: Interactive visualization, real-time audio synthesis, statistical reports
 
