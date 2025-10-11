@@ -6,8 +6,6 @@ Signal Viewer is a comprehensive, modular Python-based web application suite bui
 
 The platform demonstrates advanced signal processing techniques, AI-powered inference, real-time visualization, and interactive data exploration across diverse domains.
 
-![Signal Viewer Dashboard](https://via.placeholder.com/1200x700?text=Signal+Viewer+Multi-Application+Platform)
-
 ---
 
 ## Applications
@@ -105,6 +103,8 @@ The platform demonstrates advanced signal processing techniques, AI-powered infe
 
 ### 3. SAR Data Analysis Platform (sar_app.py)
 
+<img width="1585" height="729" alt="image" src="https://github.com/user-attachments/assets/8d11d46b-984f-405f-972d-bfd8589b757e" />
+
 **Purpose**: Advanced processing and analysis of Synthetic Aperture Radar (SAR) imagery with statistical analysis, and feature extraction.
 
 **Key Features**:
@@ -138,7 +138,11 @@ The platform demonstrates advanced signal processing techniques, AI-powered infe
 
 **Output Formats**: Statistical reports, feature extractions, intensity distributions
 
-![SAR Analysis Platform](https://via.placeholder.com/1200x600?text=SAR+Image+Analysis+Dashboard)
+<img width="1583" height="728" alt="image" src="https://github.com/user-attachments/assets/6fcffa78-d479-43f3-a09d-f623c2358026" />
+<img width="1584" height="728" alt="image" src="https://github.com/user-attachments/assets/78c64810-97ec-4b68-a8b7-59191c0ad951" />
+
+
+
 
 ---
 
