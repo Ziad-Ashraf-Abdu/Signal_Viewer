@@ -42,7 +42,9 @@ The platform demonstrates advanced signal processing techniques, AI-powered infe
 
 **Output Formats**: Interactive web interface with real-time plots, and classification predictions
 
-![Medical Signal Interface](https://via.placeholder.com/1200x600?text=ECG+EEG+Real-Time+Monitoring+Interface)
+![Recording 2025-10-11 195402](https://github.com/user-attachments/assets/d85412e3-07db-4655-8543-e2514be08e6f)
+![Recording 2025-10-11 195927](https://github.com/user-attachments/assets/c3573ecd-4c4c-4d1e-a3dc-6f5bf56b9e5c)
+
 
 
 
