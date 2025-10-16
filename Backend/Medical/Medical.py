@@ -768,7 +768,7 @@ class ConditionIdentificationModel:
                 low = max(self.eeg_filter_params['lowcut'] / nyq, 1e-6)
                 high = min(self.eeg_filter_params['highcut'] / nyq, 0.9999)
 
-                b, a = butter(self.eeg_filter_params['order'], [low, high], btype='band')
+                b, a = butter(self.ecg_filter_params['order'], [low, high], btype='band')
                 sig = filtfilt(b, a, sig).astype(np.float32)
             except Exception as e:
                 print(f"[Preprocess EEG] Filtering warning: {e}")
@@ -776,11 +776,11 @@ class ConditionIdentificationModel:
         # Resample to 100 Hz
         if original_fs is not None and SCIPY_AVAILABLE and original_fs != self.eeg_sampling_rate and len(sig) > 10:
             try:
-                num_samples = int(len(sig) * self.eeg_sampling_rate / float(original_fs))
+                num_samples = int(len(sig) * self.ecg_sampling_rate / float(original_fs))
                 sig = resample(sig, num_samples)
             except Exception:
                 x_old = np.linspace(0, 1, len(sig))
-                x_new = np.linspace(0, 1, int(len(sig) * self.eeg_sampling_rate / float(original_fs)))
+                x_new = np.linspace(0, 1, int(len(sig) * self.ecg_sampling_rate / float(original_fs)))
                 sig = np.interp(x_new, x_old, sig).astype(np.float32)
 
         # Z-score normalization for EEG
@@ -2205,13 +2205,22 @@ app.layout = html.Div(style=app_style, children=[
             dcc.Dropdown(id="patients-dropdown", multi=True, placeholder="Select one or more patients"),
             html.Label("Select Channels", style={'marginTop': '12px'}),
             dcc.Dropdown(id="channels-dropdown", multi=True, placeholder="Auto-selects first 3 if empty"),
+            html.Button("Select All Channels", id="select-all-channels-btn", n_clicks=0,
+                        style={**button_style, 'backgroundColor': '#6B7280', 'marginTop': '8px'}),
+
+            html.Label("Analysis Domain", style={'marginTop': '12px'}),
+            dcc.RadioItems(
+                id="domain-switch",
+                options=[
+                    {'label': 'Time Domain', 'value': 'time'},
+                    {'label': 'Frequency Domain', 'value': 'frequency'}
+                ],
+                value='frequency',
+                labelStyle={'display': 'inline-block', 'marginRight': '12px'}
+            ),
+
             html.Label("Visualization Type", style={'marginTop': '12px'}),
-            dcc.Dropdown(id="viz-type", options=[
-                {"label": "Standard Monitor", "value": "icu"},
-                {"label": "Ping-Pong Overlay", "value": "pingpong"},
-                {"label": "Polar View", "value": "polar"},
-                {"label": "Cross-Recurrence Plot", "value": "crossrec"}
-            ], value="icu"),
+            dcc.Dropdown(id="viz-type", value="icu"),  # Options are now dynamic
             html.Label("Channel Display Mode", style={'marginTop': '12px'}),
             dcc.RadioItems(id="overlay-mode", options=[{"label": "Overlay", "value": "overlay"},
                                                        {"label": "Separate", "value": "separate"}],
@@ -2245,6 +2254,16 @@ app.layout = html.Div(style=app_style, children=[
             ]),
         ]),
 
+        # --- Frequency Analysis Card (visibility controlled by callback) ---
+        html.Div(id='freq-analysis-card', style={**card_style}, children=[
+            html.H2("Frequency Analysis", style=card_header_style),
+            html.Div(id='nyquist-info'),
+            html.Label("Resampling Frequency (Hz) for FFT", style={'marginTop': '12px'}),
+            dcc.Input(id="resampling-freq", type="number", value=500, min=10, step=10,
+                      placeholder="e.g., 500", style={'width': '100%'}),
+            html.Div(id="fft-computation-time", style={"marginTop": "12px"})
+        ]),
+
         # --- AI Analysis Control Card ---
         html.Div(style=card_style, children=[
             html.H2("AI Analysis", style=card_header_style),
@@ -2276,6 +2295,23 @@ app.layout = html.Div(style=app_style, children=[
         ]),
     ]),
 
+    # --- Modal for Graph Preview ---
+    html.Div(id='graph-preview-modal', style={
+        'display': 'none', 'position': 'fixed', 'zIndex': '1000',
+        'left': 0, 'top': 0, 'width': '100%', 'height': '100%',
+        'overflow': 'auto', 'backgroundColor': 'rgba(0,0,0,0.8)'
+    }, children=[
+        html.Div(
+            style={'backgroundColor': '#fefefe', 'margin': '5% auto', 'padding': '20px', 'border': '1px solid #888',
+                   'width': '80%', 'position': 'relative'}, children=[
+                html.Button("Close [X]", id='close-preview-btn', n_clicks=0, style={
+                    'position': 'absolute', 'top': '10px', 'right': '20px', 'fontSize': '20px', 'fontWeight': 'bold',
+                    'border': 'none', 'background': 'none', 'cursor': 'pointer'
+                }),
+                dcc.Graph(id='preview-graph', style={'height': '600px'})
+            ])
+    ]),
+
     # --- Hidden Components ---
     dcc.Interval(id="interval", interval=200, n_intervals=0),
     dcc.Store(id="app-state", data=None),
@@ -2283,6 +2319,57 @@ app.layout = html.Div(style=app_style, children=[
 
 
 # ---------- Callbacks (updated for 3-channel display) ----------
+@app.callback(
+    Output("viz-type", "options"),
+    Input("domain-switch", "value")
+)
+def update_viz_options(domain):
+    if domain == 'time':
+        return [
+            {"label": "Standard Monitor", "value": "icu"},
+            {"label": "Ping-Pong Overlay", "value": "pingpong"},
+            {"label": "Polar View", "value": "polar"},
+            {"label": "Cross-Recurrence Plot", "value": "crossrec"}
+        ]
+    else:  # frequency
+        return [
+            {"label": "Frequency Spectrum", "value": "icu"},
+            {"label": "Spectral Comparison", "value": "pingpong"},
+            {"label": "Spectral Polar View", "value": "polar"},
+            {"label": "Spectral Cross-Recurrence", "value": "crossrec"}
+        ]
+
+
+@app.callback(
+    Output("channels-dropdown", "value"),
+    Input("select-all-channels-btn", "n_clicks"),
+    State("patients-dropdown", "value"),
+    prevent_initial_call=True
+)
+def select_all_channels(n_clicks, selected_patients):
+    if not n_clicks or not selected_patients:
+        return no_update
+
+    patients = GLOBAL_DATA.get("patients", [])
+    if not patients:
+        return no_update
+
+    # Use the first selected patient as the reference for channels
+    try:
+        pid = int(selected_patients[0])
+        if pid >= len(patients):
+            return no_update
+    except (ValueError, IndexError):
+        return no_update
+
+    patient = patients[pid]
+    if "ecg" not in patient or patient["ecg"] is None:
+        return no_update
+
+    all_channels = [c for c in patient["ecg"].columns if c.startswith("signal_")]
+    return all_channels
+
+
 @app.callback(
     [Output("load-output", "children"),
      Output("patients-dropdown", "options"),
@@ -2897,380 +2984,498 @@ def xor_overlay_segments(prev_vals, new_vals, strict=True):
     return prev_out, new_out
 
 
+def _calculate_fft(signal_segment, original_fs, resampling_freq):
+    """
+    Helper function to perform resampling and FFT calculation.
+    Also identifies the maximum frequency in the original signal.
+    """
+    start_time = time.time()
+
+    y = signal_segment
+    y = y[~np.isnan(y)]
+
+    if len(y) < 2:
+        return None, None, original_fs, 0, 0
+
+    # 1. Find f_max from the original, un-sampled segment
+    N_orig = len(y)
+    yf_orig = np.fft.fft(y)
+    xf_orig = np.fft.fftfreq(N_orig, 1 / original_fs)
+
+    # Corrected f_max calculation:
+    # Find the highest frequency with significant energy, not just the strongest peak.
+    # We ignore the DC component (index 0)
+    magnitudes = np.abs(yf_orig[1:N_orig // 2])
+    frequencies = xf_orig[1:N_orig // 2]
+
+    # Set a threshold to ignore noise (e.g., 1% of the max magnitude)
+    if len(magnitudes) > 0:
+        noise_threshold = np.max(magnitudes) * 0.01
+        significant_freqs = frequencies[magnitudes > noise_threshold]
+        if len(significant_freqs) > 0:
+            f_max = np.max(significant_freqs)
+        else:
+            f_max = 0
+    else:
+        f_max = 0
+
+    # 2. Perform resampling for the plot
+    resampling_freq_val = float(resampling_freq or 500.0)
+    if resampling_freq_val >= original_fs:
+        step = 1
+    else:
+        step = int(round(original_fs / resampling_freq_val))
+    step = max(1, step)
+
+    y_sampled = y[::step]
+    fs_new = original_fs / step
+
+    if len(y_sampled) < 2:
+        return None, None, fs_new, 0, f_max
+
+    # 3. Calculate FFT on the (potentially down-sampled) signal
+    N = len(y_sampled)
+    yf = np.fft.fft(y_sampled)
+    xf = np.fft.fftfreq(N, 1 / fs_new)
+
+    xf_plot = xf[:N // 2]
+    yf_plot = np.abs(yf[0:N // 2])  # Use absolute magnitude
+
+    computation_time = time.time() - start_time
+
+    return xf_plot, yf_plot, fs_new, computation_time, f_max
+
+
 def make_viz_figure(viz_type, patients, selected_idxs, show_all_channels, state,
                     display_window_val=8.0, speed_val=1.0, collapse_flag=None,
-                    selected_channels=None, overlay=True):
+                    selected_channels=None, overlay=True, resampling_freq=500.0,
+                    domain='frequency'):
     """
-    Unified visualization builder with full support for all four plot types.
+    Unified visualization builder for both Time and Frequency domains.
+    """
+    total_computation_time = 0
+    nyquist_info = {'f_max': 0, 'nyquist_rate': 0}
 
-    Args:
-        viz_type: "icu", "pingpong", "polar", or "crossrec"
-        patients: List of patient records
-        selected_idxs: List of patient indices to display
-        show_all_channels: Deprecated (kept for compatibility)
-        state: Current playback state
-        display_window_val: Display window in seconds
-        speed_val: Playback speed multiplier
-        collapse_flag: Deprecated (kept for compatibility)
-        selected_channels: List of channel names to display (None for auto-selection)
-        overlay: True to overlay channels, False for separate subplots
-    """
     try:
         if not patients:
-            return create_empty_figure("No patients")
-
-        dataset_type = GLOBAL_DATA.get("dataset_type", "ECG")
+            return create_empty_figure("No patients"), None, None
 
         if not selected_idxs:
-            return create_empty_figure("No patients selected")
+            return create_empty_figure("No patients selected"), None, None
 
         pid = selected_idxs[0]
         if pid < 0 or pid >= len(patients):
-            return create_empty_figure("Invalid patient selection")
+            return create_empty_figure("Invalid patient selection"), None, None
 
         p = patients[pid]
         if "ecg" not in p or p["ecg"] is None:
-            return create_empty_figure("No data for selected patient")
+            return create_empty_figure("No data for selected patient"), None, None
 
-        # Determine channels to display
         if selected_channels and isinstance(selected_channels, (list, tuple)) and len(selected_channels) > 0:
             channels_to_display = [ch for ch in selected_channels if ch in p["ecg"].columns]
             if not channels_to_display:
-                return create_empty_figure("Selected channels not found in patient data")
+                return create_empty_figure("Selected channels not found"), None, None
         else:
-            # Auto-select first 3 channels
             all_channels = [c for c in p["ecg"].columns if c.startswith("signal_")]
             channels_to_display = all_channels[:min(3, len(all_channels))]
             if not channels_to_display:
-                return create_empty_figure("No channels available")
+                return create_empty_figure("No channels available"), None, None
 
         fs = float(p.get("header", {}).get("sampling_frequency", 250.0))
         pos = int(state["pos"][pid]) if state and "pos" in state and pid < len(state["pos"]) else len(p["ecg"])
 
-        # ------------------------
-        # ICU Monitor (streaming display)
-        # ------------------------
-        if viz_type == "icu":
-            win = int(display_window_val * fs)
-            start = max(0, pos - win)
+        win = int(display_window_val * fs)
+        start = max(0, pos - win)
+        current_segment_df = p["ecg"].iloc[start:pos]
 
-            if overlay:
-                unit = "mV" if dataset_type == "ECG" else "µV"
-                fig = go.Figure()
-                for ch in channels_to_display:
-                    seg = p["ecg"].iloc[start:pos][["time", ch]]
-                    if seg.shape[0] == 0:
-                        continue
-                    t = (seg["time"].values - seg["time"].values[0]).astype(float)
-                    y = seg[ch].values.astype(float)
-                    fig.add_trace(go.Scattergl(x=t, y=y, mode="lines", name=ch, line=dict(width=2)))
+        if current_segment_df.shape[0] < 2:
+            return create_empty_figure("Not enough data in window"), 0, nyquist_info
 
-                fig.update_layout(
-                    template="plotly_white",
-                    title=f"ICU Monitor: {p.get('name', 'Patient')}",
-                    xaxis=dict(title="Time (s)"),
-                    yaxis=dict(title=f"Amplitude ({unit})"),
-                    margin=dict(l=20, r=20, t=40, b=20),
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    font_color='#111827'
-                )
-                return fig
-            else:
-                n = len(channels_to_display)
-                unit = "mV" if dataset_type == "ECG" else "µV"
+        # ==================================
+        # TIME DOMAIN VISUALIZATIONS
+        # ==================================
+        if domain == 'time':
+            unit = "mV" if GLOBAL_DATA.get("dataset_type", "ECG") == "ECG" else "µV"
+
+            # --- Standard Monitor ---
+            if viz_type == "icu":
+                if overlay:
+                    fig = go.Figure()
+                    for ch in channels_to_display:
+                        seg = current_segment_df[["time", ch]]
+                        t = (seg["time"].values - seg["time"].values[0]).astype(float)
+                        y = seg[ch].values.astype(float)
+                        fig.add_trace(go.Scattergl(x=t, y=y, mode="lines", name=ch, customdata=[ch] * len(t)))
+                    fig.update_layout(yaxis_title=f"Amplitude ({unit})")
+                else:
+                    from plotly.subplots import make_subplots
+                    n = len(channels_to_display)
+                    fig = make_subplots(rows=n, cols=1, shared_xaxes=True, subplot_titles=channels_to_display)
+                    for i, ch in enumerate(channels_to_display, start=1):
+                        seg = current_segment_df[["time", ch]]
+                        t = (seg["time"].values - seg["time"].values[0]).astype(float)
+                        y = seg[ch].values.astype(float)
+                        fig.add_trace(go.Scattergl(x=t, y=y, mode="lines", name=ch, customdata=[ch] * len(t)), row=i,
+                                      col=1)
+                        fig.update_yaxes(title_text=f"Amp ({unit})", row=i, col=1)
+                    fig.update_layout(showlegend=False)
+                fig.update_layout(title=f"Time Domain Monitor: {p.get('name', 'Patient')}", xaxis_title="Time (s)")
+
+            # --- Ping-Pong Overlay ---
+            elif viz_type == "pingpong":
+                prev_start = max(0, start - win)
+                prev_end = start
+                prev_segment_df = p["ecg"].iloc[prev_start:prev_end]
+
+                if overlay:
+                    fig = go.Figure()
+                    for ch in channels_to_display:
+                        y_curr = current_segment_df[ch].values
+                        t = (current_segment_df["time"].values - current_segment_df["time"].values[0]).astype(float)
+                        if prev_segment_df.shape[0] == len(current_segment_df):
+                            y_prev = prev_segment_df[ch].values
+                            prev_masked, curr_masked = xor_overlay_segments(y_prev, y_curr)
+                            fig.add_trace(go.Scattergl(x=t, y=prev_masked, mode="lines", name=f"{ch} (Prev)",
+                                                       line=dict(dash='dash', color='gray'), customdata=[ch] * len(t)))
+                            fig.add_trace(go.Scattergl(x=t, y=curr_masked, mode="lines", name=f"{ch} (Curr)",
+                                                       customdata=[ch] * len(t)))
+                        else:
+                            fig.add_trace(go.Scattergl(x=t, y=y_curr, mode="lines", name=f"{ch} (Curr)",
+                                                       customdata=[ch] * len(t)))
+                    fig.update_layout(yaxis_title=f"Amplitude ({unit})")
+                else:  # Separate
+                    from plotly.subplots import make_subplots
+                    n = len(channels_to_display)
+                    fig = make_subplots(rows=n, cols=1, shared_xaxes=True, subplot_titles=channels_to_display)
+                    for i, ch in enumerate(channels_to_display, start=1):
+                        y_curr = current_segment_df[ch].values
+                        t = (current_segment_df["time"].values - current_segment_df["time"].values[0]).astype(float)
+                        if prev_segment_df.shape[0] == len(current_segment_df):
+                            y_prev = prev_segment_df[ch].values
+                            prev_masked, curr_masked = xor_overlay_segments(y_prev, y_curr)
+                            fig.add_trace(go.Scattergl(x=t, y=prev_masked, mode="lines", name=f"Prev",
+                                                       line=dict(dash='dash', color='gray'), customdata=[ch] * len(t)),
+                                          row=i, col=1)
+                            fig.add_trace(
+                                go.Scattergl(x=t, y=curr_masked, mode="lines", name=f"Curr", customdata=[ch] * len(t)),
+                                row=i, col=1)
+                        else:
+                            fig.add_trace(
+                                go.Scattergl(x=t, y=y_curr, mode="lines", name=f"Curr", customdata=[ch] * len(t)),
+                                row=i, col=1)
+                        fig.update_yaxes(title_text=f"Amp ({unit})", row=i, col=1)
+                    fig.update_layout(showlegend=True)
+                fig.update_layout(title=f"Ping-Pong Overlay: {p.get('name', 'Patient')}", xaxis_title="Time (s)")
+
+            # --- Polar View ---
+            elif viz_type == "polar":
+                time_vals = current_segment_df["time"].values
+                span = time_vals[-1] - time_vals[0] if len(time_vals) > 1 and time_vals[-1] != time_vals[0] else 1.0
+                theta = 360 * (time_vals - time_vals[0]) / span
+
+                if overlay:
+                    fig = go.Figure()
+                    for ch in channels_to_display:
+                        r = current_segment_df[ch].values
+                        fig.add_trace(
+                            go.Scatterpolar(theta=theta, r=r, mode="lines", name=ch, customdata=[ch] * len(r)))
+                    fig.update_layout(polar=dict(radialaxis=dict(title=f"Amplitude ({unit})")))
+                else:  # Separate
+                    from plotly.subplots import make_subplots
+                    n_channels = len(channels_to_display)
+                    cols = min(2, n_channels) if n_channels > 1 else 1
+                    rows = int(np.ceil(n_channels / cols))
+                    specs = [[{'type': 'polar'}] * cols for _ in range(rows)]
+                    fig = make_subplots(rows=rows, cols=cols, specs=specs, subplot_titles=channels_to_display,
+                                        horizontal_spacing=0.15, vertical_spacing=0.15)
+                    for idx, ch in enumerate(channels_to_display):
+                        row, col = (idx // cols) + 1, (idx % cols) + 1
+                        r = current_segment_df[ch].values
+                        fig.add_trace(
+                            go.Scatterpolar(theta=theta, r=r, mode="lines", name=ch, customdata=[ch] * len(r)), row=row,
+                            col=col)
+                        polar_name = f'polar{idx + 1}' if idx > 0 else 'polar'
+                        fig.layout[polar_name].radialaxis.title = f'Amp ({unit})'
+                    fig.update_layout(showlegend=False)
+                fig.update_layout(title=f"Polar View: {p.get('name', 'Patient')}")
+
+            # --- Cross-Recurrence Plot ---
+            elif viz_type == "crossrec":
+                if len(channels_to_display) < 2:
+                    return create_empty_figure("Need at least 2 channels for Cross-Recurrence"), None, None
                 from plotly.subplots import make_subplots
-                sub = make_subplots(rows=n, cols=1, shared_xaxes=True,
-                                    subplot_titles=channels_to_display,
-                                    vertical_spacing=0.02)
 
-                for i, ch in enumerate(channels_to_display, start=1):
-                    seg = p["ecg"].iloc[start:pos][["time", ch]]
-                    if seg.shape[0] == 0:
-                        continue
-                    t = (seg["time"].values - seg["time"].values[0]).astype(float)
-                    y = seg[ch].values.astype(float)
-                    sub.add_trace(go.Scattergl(x=t, y=y, mode="lines", name=ch, line=dict(width=2)),
-                                  row=i, col=1)
-                    sub.update_yaxes(title_text=f"Amplitude ({unit})", row=i, col=1)
+                if overlay:
+                    midpoint = len(channels_to_display) // 2
+                    set_a_ch = channels_to_display[:midpoint]
+                    set_b_ch = channels_to_display[midpoint:]
+                    if not set_a_ch or not set_b_ch:
+                        return create_empty_figure("Need channels for both comparison sets in overlay mode"), None, None
 
-                sub.update_layout(
-                    template="plotly_white",
-                    title=f"ICU Monitor: {p.get('name', 'Patient')}",
-                    showlegend=False,
-                    margin=dict(l=20, r=20, t=40, b=20),
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    font_color='#111827'
-                )
-                sub.update_xaxes(title_text="Time (s)", row=n, col=1)
-                return sub
+                    s1 = current_segment_df[set_a_ch].mean(axis=1).values
+                    s2 = current_segment_df[set_b_ch].mean(axis=1).values
 
-        # ------------------------
-        # Ping-Pong XOR Overlay
-        # ------------------------
-        elif viz_type == "pingpong":
-            if "buffers" not in GLOBAL_DATA:
-                GLOBAL_DATA["buffers"] = {}
-            buf = GLOBAL_DATA["buffers"].setdefault(pid, {"ping_position": 0.0, "direction": 1})
+                    fig = go.Figure()
+                    hist, xedges, yedges = np.histogram2d(s1, s2, bins=80)
+                    fig.add_trace(go.Heatmap(z=hist.T, x=xedges, y=yedges, colorscale="Viridis",
+                                             customdata=[f"Avg({','.join(set_a_ch)})"] * len(xedges)))
+                    fig.update_layout(
+                        title=f"Cross-Recurrence: Avg({', '.join(set_a_ch)}) vs. Avg({', '.join(set_b_ch)})",
+                        xaxis_title=f"Avg of Set A ({unit})",
+                        yaxis_title=f"Avg of Set B ({unit})"
+                    )
+                else:  # Separate
+                    pairs = [(channels_to_display[i], channels_to_display[i + 1]) for i in
+                             range(0, len(channels_to_display) - 1, 2)]
+                    if not pairs:
+                        return create_empty_figure("Not enough channels for pairing"), None, None
+                    n_pairs = len(pairs)
+                    fig = make_subplots(rows=n_pairs, cols=1, subplot_titles=[f"{p[0]} vs {p[1]}" for p in pairs])
+                    for i, (ch_a, ch_b) in enumerate(pairs, start=1):
+                        s1 = current_segment_df[ch_a].values
+                        s2 = current_segment_df[ch_b].values
+                        hist, xedges, yedges = np.histogram2d(s1, s2, bins=80)
+                        fig.add_trace(go.Heatmap(z=hist.T, x=xedges, y=yedges, colorscale="Viridis",
+                                                 customdata=[ch_a] * len(xedges)), row=i, col=1)
+                        fig.update_xaxes(title_text=f"{ch_a} ({unit})", row=i, col=1)
+                        fig.update_yaxes(title_text=f"{ch_b} ({unit})", row=i, col=1)
+                    fig.update_layout(title=f"Cross-Recurrence: {p.get('name', 'Patient')}")
 
-            if state and state.get("playing", False):
-                step = 0.01 * float(speed_val)
-                buf["ping_position"] += buf["direction"] * step
-                if buf["ping_position"] >= 1.0:
-                    buf["ping_position"] = 1.0
-                    buf["direction"] = -1
-                if buf["ping_position"] <= 0.0:
-                    buf["ping_position"] = 0.0
-                    buf["direction"] = 1
-
-            win = int(display_window_val * fs)
-            start = max(0, pos - win)
-            prev_start = max(0, start - win)
-            prev_end = prev_start + win
-            end = min(start + win, len(p["ecg"]))
-
-            if overlay:
-                unit = "mV" if dataset_type == "ECG" else "µV"
-                fig = go.Figure()
-                for ch in channels_to_display:
-                    seg_prev = p["ecg"].iloc[prev_start:prev_end][["time", ch]] if prev_end > prev_start else None
-                    seg_new = p["ecg"].iloc[start:end][["time", ch]] if end > start else None
-
-                    if seg_new is None or seg_new.shape[0] == 0:
-                        continue
-
-                    times_new = (seg_new["time"].values - seg_new["time"].values[0]).astype(float)
-                    vals_new = seg_new[ch].values.astype(float)
-
-                    if seg_prev is None or seg_prev.shape[0] == 0:
-                        fig.add_trace(go.Scattergl(x=times_new, y=vals_new, mode="lines",
-                                                   name=f"{ch} (new)", line=dict(width=2)))
-                    else:
-                        times_prev = (seg_prev["time"].values - seg_prev["time"].values[0]).astype(float)
-                        vals_prev = seg_prev[ch].values.astype(float)
-
-                        m = min(len(vals_prev), len(vals_new))
-                        vals_prev, times_prev = vals_prev[:m], times_prev[:m]
-                        vals_new, times_new = vals_new[:m], times_new[:m]
-
-                        # XOR overlay: both signals erased where identical
-                        prev_masked, new_masked = xor_overlay_segments(vals_prev, vals_new, strict=True)
-
-                        fig.add_trace(go.Scattergl(x=times_prev, y=prev_masked, mode="lines",
-                                                   line=dict(dash='dash', width=1, color='gray'),
-                                                   name=f"{ch} (prev)"))
-                        fig.add_trace(go.Scattergl(x=times_new, y=new_masked, mode="lines",
-                                                   line=dict(width=2), name=f"{ch} (new)"))
-
-                fig.update_layout(
-                    template="plotly_white",
-                    title=f"Ping-Pong XOR: {p.get('name', 'Patient')}",
-                    xaxis=dict(title="Time (s)"),
-                    yaxis=dict(title=f"Amplitude ({unit})"),
-                    margin=dict(l=20, r=20, t=40, b=20),
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    font_color='#111827'
-                )
-                return fig
             else:
+                fig = create_empty_figure(f"Unknown Visualization Type")
+
+            fig.update_layout(template="plotly_white", margin=dict(l=40, r=40, t=60, b=40))
+            return fig, 0, None  # No computation time or Nyquist info for time domain
+
+        # ==================================
+        # FREQUENCY DOMAIN VISUALIZATIONS
+        # ==================================
+        else:  # domain == 'frequency'
+            final_fs_new = fs
+
+            # --- Frequency Spectrum ---
+            if viz_type == "icu":
+                if overlay:
+                    fig = go.Figure()
+                    for ch in channels_to_display:
+                        y_segment = current_segment_df[ch].values
+                        xf, yf, fs_new, comp_time, f_max = _calculate_fft(y_segment, fs, resampling_freq)
+                        total_computation_time += comp_time
+                        nyquist_info['f_max'] = max(nyquist_info['f_max'], f_max)
+                        final_fs_new = fs_new
+                        if xf is not None:
+                            fig.add_trace(go.Scattergl(x=xf, y=yf, mode="lines", name=ch, customdata=[ch] * len(xf)))
+                    fig.update_layout(yaxis_title="Magnitude")
+                else:  # Separate
+                    from plotly.subplots import make_subplots
+                    n = len(channels_to_display)
+                    fig = make_subplots(rows=n, cols=1, shared_xaxes=True, subplot_titles=channels_to_display)
+                    for i, ch in enumerate(channels_to_display, start=1):
+                        y_segment = current_segment_df[ch].values
+                        xf, yf, fs_new, comp_time, f_max = _calculate_fft(y_segment, fs, resampling_freq)
+                        total_computation_time += comp_time
+                        nyquist_info['f_max'] = max(nyquist_info['f_max'], f_max)
+                        final_fs_new = fs_new
+                        if xf is not None:
+                            fig.add_trace(go.Scattergl(x=xf, y=yf, mode="lines", name=ch, customdata=[ch] * len(xf)),
+                                          row=i, col=1)
+                        fig.update_yaxes(title_text="Magnitude", row=i, col=1)
+                    fig.update_layout(showlegend=False)
+                fig.update_layout(
+                    title=f"Frequency Spectrum: {p.get('name', 'Patient')}",
+                    xaxis_title=f"Frequency (Hz) - Sampled at {final_fs_new:.1f} Hz"
+                )
+
+            # --- Spectral Comparison (Ping-Pong) ---
+            elif viz_type == "pingpong":
+                prev_start = max(0, start - win)
+                prev_end = start
+                prev_segment_df = p["ecg"].iloc[prev_start:prev_end]
+
+                if overlay:
+                    fig = go.Figure()
+                    for ch in channels_to_display:
+                        # Current FFT
+                        xf_curr, yf_curr, fs_new_curr, ct_curr, fmax_curr = _calculate_fft(
+                            current_segment_df[ch].values, fs, resampling_freq)
+                        total_computation_time += ct_curr
+                        nyquist_info['f_max'] = max(nyquist_info['f_max'], fmax_curr)
+                        final_fs_new = fs_new_curr
+                        if xf_curr is not None:
+                            fig.add_trace(go.Scattergl(x=xf_curr, y=yf_curr, mode="lines", name=f"{ch} (Curr)",
+                                                       customdata=[ch] * len(xf_curr)))
+
+                        # Previous FFT
+                        if prev_segment_df.shape[0] > 1:
+                            xf_prev, yf_prev, _, ct_prev, fmax_prev = _calculate_fft(prev_segment_df[ch].values, fs,
+                                                                                     resampling_freq)
+                            total_computation_time += ct_prev
+                            nyquist_info['f_max'] = max(nyquist_info['f_max'], fmax_prev)
+                            if xf_prev is not None:
+                                fig.add_trace(go.Scattergl(x=xf_prev, y=yf_prev, mode="lines", name=f"{ch} (Prev)",
+                                                           line=dict(dash='dash', color='gray'),
+                                                           customdata=[ch] * len(xf_prev)))
+                    fig.update_layout(yaxis_title="Magnitude")
+                else:  # Separate
+                    from plotly.subplots import make_subplots
+                    n = len(channels_to_display)
+                    fig = make_subplots(rows=n, cols=1, shared_xaxes=True, subplot_titles=channels_to_display)
+                    for i, ch in enumerate(channels_to_display, start=1):
+                        xf_curr, yf_curr, fs_new_curr, ct_curr, fmax_curr = _calculate_fft(
+                            current_segment_df[ch].values, fs, resampling_freq)
+                        total_computation_time += ct_curr
+                        nyquist_info['f_max'] = max(nyquist_info['f_max'], fmax_curr)
+                        final_fs_new = fs_new_curr
+                        if xf_curr is not None:
+                            fig.add_trace(go.Scattergl(x=xf_curr, y=yf_curr, mode="lines", name=f"Curr",
+                                                       customdata=[ch] * len(xf_curr)), row=i, col=1)
+
+                        if prev_segment_df.shape[0] > 1:
+                            xf_prev, yf_prev, _, ct_prev, fmax_prev = _calculate_fft(prev_segment_df[ch].values, fs,
+                                                                                     resampling_freq)
+                            total_computation_time += ct_prev
+                            nyquist_info['f_max'] = max(nyquist_info['f_max'], fmax_prev)
+                            if xf_prev is not None:
+                                fig.add_trace(go.Scattergl(x=xf_prev, y=yf_prev, mode="lines", name=f"Prev",
+                                                           line=dict(dash='dash', color='gray'),
+                                                           customdata=[ch] * len(xf_prev)), row=i, col=1)
+                        fig.update_yaxes(title_text="Magnitude", row=i, col=1)
+                    fig.update_layout(showlegend=True)
+                fig.update_layout(
+                    title=f"Spectral Comparison: {p.get('name', 'Patient')}",
+                    xaxis_title=f"Frequency (Hz) - Sampled at {final_fs_new:.1f} Hz"
+                )
+
+            # --- Spectral Polar View ---
+            elif viz_type == "polar":
+                if overlay:
+                    fig = go.Figure()
+                    for ch in channels_to_display:
+                        xf, yf, fs_new, ct, f_max = _calculate_fft(current_segment_df[ch].values, fs, resampling_freq)
+                        total_computation_time += ct
+                        nyquist_info['f_max'] = max(nyquist_info['f_max'], f_max)
+                        final_fs_new = fs_new
+                        if xf is not None and len(xf) > 0:
+                            theta = xf * 360 / (fs_new / 2)
+                            fig.add_trace(
+                                go.Scatterpolar(theta=theta, r=yf, mode="lines", name=ch, customdata=[ch] * len(xf)))
+                    fig.update_layout(polar=dict(radialaxis_type="log", radialaxis_title="Magnitude"))
+                else:  # Separate
+                    from plotly.subplots import make_subplots
+                    n_channels = len(channels_to_display)
+                    cols = min(2, n_channels) if n_channels > 1 else 1
+                    rows = int(np.ceil(n_channels / cols))
+                    specs = [[{'type': 'polar'}] * cols for _ in range(rows)]
+                    fig = make_subplots(rows=rows, cols=cols, specs=specs, subplot_titles=channels_to_display,
+                                        horizontal_spacing=0.15, vertical_spacing=0.15)
+                    for idx, ch in enumerate(channels_to_display):
+                        row, col = (idx // cols) + 1, (idx % cols) + 1
+                        xf, yf, fs_new, ct, f_max = _calculate_fft(current_segment_df[ch].values, fs, resampling_freq)
+                        total_computation_time += ct
+                        nyquist_info['f_max'] = max(nyquist_info['f_max'], f_max)
+                        final_fs_new = fs_new
+                        if xf is not None and len(xf) > 0:
+                            theta = xf * 360 / (fs_new / 2)
+                            fig.add_trace(
+                                go.Scatterpolar(theta=theta, r=yf, mode="lines", name=ch, customdata=[ch] * len(xf)),
+                                row=row, col=col)
+                        polar_name = f'polar{idx + 1}' if idx > 0 else 'polar'
+                        fig.layout[polar_name].radialaxis.type = "log"
+                        fig.layout[polar_name].radialaxis.title = "Magnitude"
+                    fig.update_layout(showlegend=False)
+                fig.update_layout(title=f"Spectral Polar View: {p.get('name', 'Patient')}")
+
+            # --- Spectral Cross-Recurrence ---
+            elif viz_type == "crossrec":
+                if len(channels_to_display) < 2:
+                    return create_empty_figure("Need at least 2 channels for Cross-Recurrence"), None, None
                 from plotly.subplots import make_subplots
-                n = len(channels_to_display)
-                unit = "mV" if dataset_type == "ECG" else "µV"
-                sub = make_subplots(rows=n, cols=1, shared_xaxes=True,
-                                    subplot_titles=channels_to_display,
-                                    vertical_spacing=0.03)
 
-                for i, ch in enumerate(channels_to_display, start=1):
-                    seg_prev = p["ecg"].iloc[prev_start:prev_end][["time", ch]] if prev_end > prev_start else None
-                    seg_new = p["ecg"].iloc[start:end][["time", ch]] if end > start else None
+                if overlay:
+                    midpoint = len(channels_to_display) // 2
+                    set_a_ch = channels_to_display[:midpoint]
+                    set_b_ch = channels_to_display[midpoint:]
+                    if not set_a_ch or not set_b_ch:
+                        return create_empty_figure("Need channels for both comparison sets in overlay mode"), None, None
 
-                    if seg_new is None or seg_new.shape[0] == 0:
-                        continue
+                    # Average the FFTs for each set
+                    xf_a_all, yfs_a, yfs_b = [], [], []
+                    min_len = float('inf')
 
-                    times_new = (seg_new["time"].values - seg_new["time"].values[0]).astype(float)
-                    vals_new = seg_new[ch].values.astype(float)
+                    for ch in set_a_ch:
+                        xf, yf, _, ct, f_max = _calculate_fft(current_segment_df[ch].values, fs, resampling_freq)
+                        total_computation_time += ct
+                        nyquist_info['f_max'] = max(nyquist_info['f_max'], f_max)
+                        if yf is not None:
+                            yfs_a.append(yf)
+                            xf_a_all = xf  # just need one x-axis
+                            min_len = min(min_len, len(yf))
 
-                    if seg_prev is None or seg_prev.shape[0] == 0:
-                        sub.add_trace(go.Scattergl(x=times_new, y=vals_new, mode="lines",
-                                                   name=f"{ch}", line=dict(width=2)), row=i, col=1)
-                    else:
-                        times_prev = (seg_prev["time"].values - seg_prev["time"].values[0]).astype(float)
-                        vals_prev = seg_prev[ch].values.astype(float)
+                    for ch in set_b_ch:
+                        xf, yf, fs_new, ct, f_max = _calculate_fft(current_segment_df[ch].values, fs, resampling_freq)
+                        total_computation_time += ct
+                        nyquist_info['f_max'] = max(nyquist_info['f_max'], f_max)
+                        final_fs_new = fs_new
+                        if yf is not None:
+                            yfs_b.append(yf)
+                            min_len = min(min_len, len(yf))
 
-                        m = min(len(vals_prev), len(vals_new))
-                        vals_prev, times_prev = vals_prev[:m], times_prev[:m]
-                        vals_new, times_new = vals_new[:m], times_new[:m]
+                    if not yfs_a or not yfs_b or min_len == float('inf'):
+                        return create_empty_figure(
+                            "Could not compute FFT for channel sets"), total_computation_time, nyquist_info
 
-                        # XOR overlay: both signals erased where identical
-                        prev_masked, new_masked = xor_overlay_segments(vals_prev, vals_new, strict=True)
+                    yf_a_avg = np.mean([y[:min_len] for y in yfs_a], axis=0)
+                    yf_b_avg = np.mean([y[:min_len] for y in yfs_b], axis=0)
 
-                        sub.add_trace(go.Scattergl(x=times_prev, y=prev_masked, mode="lines",
-                                                   line=dict(dash='dash', width=1, color='gray'),
-                                                   name=f"{ch} prev"), row=i, col=1)
-                        sub.add_trace(go.Scattergl(x=times_new, y=new_masked, mode="lines",
-                                                   line=dict(width=2), name=f"{ch} new"), row=i, col=1)
+                    z = np.outer(yf_a_avg, yf_b_avg)
+                    xf_plot = xf_a_all[:min_len] if xf_a_all is not None else np.arange(min_len)
 
-                    sub.update_yaxes(title_text=f"Amplitude ({unit})", row=i, col=1)
+                    fig = go.Figure(data=go.Heatmap(z=z, x=xf_plot, y=xf_plot, colorscale='Viridis'))
+                    fig.update_layout(
+                        title=f"Spectral Cross-Recurrence: Avg({', '.join(set_a_ch)}) vs. Avg({', '.join(set_b_ch)})",
+                        xaxis_title=f"Frequency (Hz) - Set A",
+                        yaxis_title=f"Frequency (Hz) - Set B"
+                    )
 
-                sub.update_layout(
-                    template="plotly_white",
-                    title=f"Ping-Pong XOR: {p.get('name', 'Patient')}",
-                    showlegend=True,
-                    margin=dict(l=20, r=20, t=40, b=20),
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    font_color='#111827'
-                )
-                sub.update_xaxes(title_text="Time (s)", row=n, col=1)
-                return sub
+                else:  # Separate
+                    pairs = [(channels_to_display[i], channels_to_display[i + 1]) for i in
+                             range(0, len(channels_to_display) - 1, 2)]
+                    if not pairs:
+                        return create_empty_figure("Not enough channels for pairing"), None, None
+                    n_pairs = len(pairs)
+                    fig = make_subplots(rows=n_pairs, cols=1, subplot_titles=[f"{p[0]} vs {p[1]}" for p in pairs])
 
-        # ------------------------
-        # Polar RR Intervals
-        # ------------------------
-        elif viz_type == "polar":
-            current_data = p["ecg"].iloc[:pos]
+                    for i, (ch_a, ch_b) in enumerate(pairs, start=1):
+                        xf_a, yf_a, fs_new_a, ct_a, f_max_a = _calculate_fft(current_segment_df[ch_a].values, fs,
+                                                                             resampling_freq)
+                        xf_b, yf_b, fs_new_b, ct_b, f_max_b = _calculate_fft(current_segment_df[ch_b].values, fs,
+                                                                             resampling_freq)
+                        total_computation_time += (ct_a + ct_b)
+                        nyquist_info['f_max'] = max(nyquist_info['f_max'], f_max_a, f_max_b)
+                        final_fs_new = fs_new_a
 
-            if current_data.shape[0] == 0:
-                return create_empty_figure("No data played yet - press Play to start")
-
-            max_points = 2000
-            if len(current_data) > max_points:
-                step = len(current_data) // max_points
-                plot_data = current_data.iloc[::step]
-            else:
-                plot_data = current_data
-
-            if plot_data.shape[0] == 0:
-                return create_empty_figure("No data for polar plot")
-
-            time_vals = plot_data["time"].values
-            span = time_vals[-1] - time_vals[0] if time_vals[-1] != time_vals[0] else 1.0
-            theta = 2 * np.pi * ((time_vals - time_vals[0]) / span) * 180 / np.pi  # Convert to degrees
-
-            unit = "mV" if dataset_type == "ECG" else "µV"
-
-            if overlay:
-                fig = go.Figure()
-                max_r = 0
-                for ch in channels_to_display:
-                    if ch not in plot_data.columns:
-                        continue
-                    r = np.abs(plot_data[ch].values.astype(float))
-                    max_r = max(max_r, r.max() if r.size > 0 else 0)
-                    fig.add_trace(go.Scatterpolar(theta=theta, r=r, mode="lines", name=ch, line=dict(width=2)))
-
-                fig.update_layout(
-                    template="plotly_white",
-                    title=f"Polar View: {p.get('name', 'Patient')}",
-                    polar=dict(
-                        radialaxis=dict(showticklabels=True, ticks='', range=[0, max_r * 1.1] if max_r > 0 else [0, 1]),
-                        angularaxis=dict(showticklabels=True, ticks='', direction='clockwise')
-                    ),
-                    margin=dict(l=40, r=40, t=60, b=40),
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    font_color='#111827'
-                )
-                return fig
+                        if xf_a is not None and xf_b is not None:
+                            z = np.outer(yf_a, yf_b)
+                            fig.add_trace(
+                                go.Heatmap(z=z, x=xf_a, y=xf_b, colorscale="Viridis", customdata=[ch_a] * len(xf_a)),
+                                row=i, col=1)
+                        fig.update_xaxes(title_text=f"Frequency ({ch_a})", row=i, col=1)
+                        fig.update_yaxes(title_text=f"Frequency ({ch_b})", row=i, col=1)
+                    fig.update_layout(title="Cross-Recurrence of Frequencies")
 
             else:
-                n_channels = len(channels_to_display)
-                cols = min(2, n_channels)
-                rows = int(np.ceil(n_channels / cols))
-                from plotly.subplots import make_subplots
-                specs = [[{'type': 'polar'} for _ in range(cols)] for _ in range(rows)]
-                fig = make_subplots(rows=rows, cols=cols, specs=specs, subplot_titles=channels_to_display,
-                                    horizontal_spacing=0.15, vertical_spacing=0.15)
+                fig = create_empty_figure(f"Unknown Visualization Type")
 
-                for idx, ch in enumerate(channels_to_display):
-                    if ch not in plot_data.columns: continue
-                    row, col = (idx // cols) + 1, (idx % cols) + 1
-                    r = np.abs(plot_data[ch].values.astype(float))
-                    max_r = r.max() if r.size > 0 else 1
-                    fig.add_trace(
-                        go.Scatterpolar(theta=theta, r=r, mode="lines", name=ch, line=dict(width=2, color='#10B981'),
-                                        showlegend=False), row=row, col=col)
-                    polar_name = f"polar{idx + 1}" if idx > 0 else "polar"
-                    fig.update_layout(**{
-                        polar_name: dict(radialaxis=dict(showticklabels=True, ticks='', range=[0, max_r * 1.1]),
-                                         angularaxis=dict(showticklabels=True, ticks='', direction='clockwise'))})
-
-                fig.update_layout(
-                    template="plotly_white",
-                    title=f"Polar View: {p.get('name', 'Patient')}",
-                    margin=dict(l=20, r=20, t=60, b=20),
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    font_color='#111827'
-                )
-                return fig
-
-        # ------------------------
-        # Cross-Recurrence
-        # ------------------------
-        elif viz_type == "crossrec":
-            if len(channels_to_display) < 2:
-                return create_empty_figure("Need at least 2 channels for cross-recurrence")
-
-            if len(channels_to_display) % 2 != 0:
-                channels_to_display = channels_to_display[:-1]
-
-            pairs = [(channels_to_display[i], channels_to_display[i + 1]) for i in
-                     range(0, len(channels_to_display), 2)]
-            if not pairs: return create_empty_figure("No valid channel pairs")
-
-            current_data = p["ecg"].iloc[:pos]
-            if current_data.shape[0] == 0: return create_empty_figure("No data played yet")
-
-            unit = "mV" if dataset_type == "ECG" else "µV"
-            rec_matrices, pair_titles, pair_info, vmax = [], [], [], 0
-
-            for ch_a, ch_b in pairs:
-                s1, s2 = current_data[ch_a].values.astype(float), current_data[ch_b].values.astype(float)
-                mlen = min(len(s1), len(s2))
-                if mlen == 0: continue
-                s1, s2 = s1[:mlen], s2[:mlen]
-                hist, xedges, yedges = np.histogram2d(s1, s2, bins=80)
-                if hist.max() > 0: hist = hist / hist.max()
-                rec_matrices.append(hist)
-                pair_titles.append(f"{ch_a} vs {ch_b}")
-                pair_info.append({'xedges': xedges, 'yedges': yedges, 'ch_a': ch_a, 'ch_b': ch_b})
-                vmax = max(vmax, hist.max() if hist.size > 0 else 0)
-
-            n_pairs = len(pairs)
-            cols = int(np.ceil(np.sqrt(n_pairs))) if overlay else 1
-            rows = int(np.ceil(n_pairs / cols))
-            from plotly.subplots import make_subplots
-            fig = make_subplots(rows=rows, cols=cols, subplot_titles=pair_titles)
-
-            for idx, (rec, info) in enumerate(zip(rec_matrices, pair_info)):
-                r, c = (idx // cols) + 1, (idx % cols) + 1
-                if rec is None or rec.size == 0 or info is None: continue
-                hm = go.Heatmap(z=rec.T, x=info['xedges'][:-1], y=info['yedges'][:-1], colorscale="Viridis", zmin=0,
-                                zmax=max(vmax, 0.01), showscale=(idx == len(rec_matrices) - 1))
-                fig.add_trace(hm, row=r, col=c)
-                fig.update_xaxes(title_text=f"{info['ch_a']} ({unit})", row=r, col=c)
-                fig.update_yaxes(title_text=f"{info['ch_b']} ({unit})", row=r, col=c)
-
-            fig.update_layout(
-                template="plotly_white",
-                title=f"Cross-Recurrence: {p.get('name', 'Patient')}",
-                margin=dict(l=20, r=20, t=60, b=20),
-                paper_bgcolor='rgba(0,0,0,0)',
-                plot_bgcolor='rgba(0,0,0,0)',
-                font_color='#111827'
-            )
-            return fig
-
-        return create_empty_figure(f"Unknown viz type: {viz_type}")
+            # Final updates for all frequency plots
+            nyquist_info['nyquist_rate'] = 2 * nyquist_info['f_max']
+            fig.update_layout(template="plotly_white", margin=dict(l=40, r=40, t=60, b=40))
+            return fig, total_computation_time, nyquist_info
 
     except Exception as exc:
         print(f"[make_viz_figure] Error: {exc}")
         import traceback
         traceback.print_exc()
-        return create_empty_figure("Error building visualization")
+        return create_empty_figure("Error building visualization"), None, None
 
 
 def create_empty_figure(title="No data"):
@@ -3290,11 +3495,15 @@ def create_empty_figure(title="No data"):
 # ---------- Combined update callback (updated for 3-channel display) ----------
 @app.callback(
     [Output("main-graph", "figure"),
-     Output("app-state", "data")],
+     Output("app-state", "data"),
+     Output("fft-computation-time", "children"),
+     Output("nyquist-info", "children"),
+     Output("freq-analysis-card", "style")],
     [Input("interval", "n_intervals"),
      Input("play-btn", "n_clicks"),
      Input("pause-btn", "n_clicks"),
-     Input("reset-btn", "n_clicks")],
+     Input("reset-btn", "n_clicks"),
+     Input("domain-switch", "value")],
     [State("app-state", "data"),
      State("patients-dropdown", "value"),
      State("channels-dropdown", "value"),
@@ -3302,18 +3511,18 @@ def create_empty_figure(title="No data"):
      State("viz-type", "value"),
      State("speed", "value"),
      State("chunk-ms", "value"),
-     State("display-window", "value")],
+     State("display-window", "value"),
+     State("resampling-freq", "value")],
     prevent_initial_call=False
 )
-def combined_update(n_intervals, n_play, n_pause, n_reset, state,
+def combined_update(n_intervals, n_play, n_pause, n_reset, domain, state,
                     selected, selected_channels, overlay_mode, viz_type,
-                    speed, chunk_ms, display_window):
+                    speed, chunk_ms, display_window, resampling_freq):
     try:
         patients = GLOBAL_DATA.get("patients", [])
         if not patients:
-            return create_empty_figure("No patients loaded"), {
-                "playing": False, "pos": [], "write_idx": []
-            }
+            return create_empty_figure("No patients loaded"), {"playing": False, "pos": [], "write_idx": []}, "", "", {
+                'display': 'none'}
 
         # Initialize state
         if state is None:
@@ -3378,65 +3587,7 @@ def combined_update(n_intervals, n_play, n_pause, n_reset, state,
                 pos1 = min(len(ecg), pos0 + chunk_samples)
 
                 if pos1 > pos0:
-                    # Update buffer (for future use)
-                    if "signal_1" in ecg.columns:
-                        block = ecg["signal_1"].values[pos0:pos1]
-                        buf = GLOBAL_DATA["buffers"][pid]
-                        N = buf["len"]
-                        L = block.size
-                        w0 = buf["write_idx"]
-
-                        if L > 0:
-                            if L >= N:
-                                buf["signal_buffer"][:] = block[-N:]
-                                write_idx = 0
-                            else:
-                                first_len = min(L, N - w0)
-                                if first_len > 0:
-                                    buf["signal_buffer"][w0:w0 + first_len] = block[:first_len]
-                                rem = L - first_len
-                                if rem > 0:
-                                    buf["signal_buffer"][:rem] = block[first_len:]
-                                write_idx = (w0 + L) % N
-
-                            buf["write_idx"] = int(write_idx)
-                            state["write_idx"][pid] = int
-                            buf["write_idx"] = int(write_idx)
-                            state["write_idx"][pid] = int(write_idx)
-
-                            # Extract RR intervals for ECG
-                            if GLOBAL_DATA.get("dataset_type", "ECG") == "ECG":
-                                try:
-                                    tailK = min(int(fs * 10), len(ecg))
-                                    tail_start = max(0, pos1 - tailK)
-                                    tail = ecg["signal_1"].values[tail_start:pos1]
-
-                                    if len(tail) > 10:
-                                        height = np.quantile(tail, 0.85)
-                                        peaks_tail, _ = find_peaks(tail, height=height, distance=int(0.3 * fs))
-                                        peaks_global = peaks_tail + tail_start
-
-                                        lastp = buf.get("last_peak_global_index", -1)
-                                        newp = peaks_global[peaks_global > lastp]
-
-                                        if newp.size > 0:
-                                            seq = []
-                                            if lastp >= 0:
-                                                seq.append(lastp)
-                                            seq.extend(newp.tolist())
-
-                                            for i in range(1, len(seq)):
-                                                rr = (seq[i] - seq[i - 1]) / float(fs)
-                                                if 0.25 <= rr <= 3.0:
-                                                    ri = int(buf["rr_write_idx"])
-                                                    buf["rr_buffer"][ri % buf["rr_buffer"].size] = rr
-                                                    buf["rr_write_idx"] = (ri + 1) % buf["rr_buffer"].size
-
-                                            buf["last_peak_global_index"] = int(newp[-1])
-                                except Exception as e:
-                                    pass
-
-                state["pos"][pid] = pos1
+                    state["pos"][pid] = pos1
 
             # Stop playing if all patients have reached the end
             try:
@@ -3465,7 +3616,7 @@ def combined_update(n_intervals, n_play, n_pause, n_reset, state,
         overlay = (overlay_mode == "overlay")
 
         # Build visualization
-        main_fig = make_viz_figure(
+        main_fig, comp_time, nyquist_info = make_viz_figure(
             viz_type,
             patients,
             selected_idxs,
@@ -3475,18 +3626,133 @@ def combined_update(n_intervals, n_play, n_pause, n_reset, state,
             speed_val=speed_val,
             collapse_flag=None,  # deprecated
             selected_channels=selected_channels,
-            overlay=overlay
+            overlay=overlay,
+            resampling_freq=resampling_freq,
+            domain=domain
         )
 
-        return main_fig, state
+        # --- Prepare outputs ---
+        fft_time_output = ""
+        nyquist_output = ""
+        freq_card_style = {'display': 'none'}
+
+        if domain == 'frequency':
+            freq_card_style = {**card_style}  # Make it visible
+
+            # 1. Computation Time
+            if comp_time is not None:
+                time_ms = comp_time * 1000
+                color = "#3B82F6"  # Blue
+                if time_ms > 50: color = "#F59E0B"  # Yellow
+                if time_ms > 100: color = "#EF4444"  # Red
+
+                fft_time_output = html.Div([
+                    html.Span("FFT Compute Time: ", style={'fontWeight': 'bold'}),
+                    html.Span(f"{time_ms:.1f} ms", style={'color': color, 'fontSize': '16px', 'fontWeight': 'bold'})
+                ])
+
+            # 2. Nyquist/Aliasing Info
+            if nyquist_info and nyquist_info['f_max'] > 0:
+                f_max = nyquist_info['f_max']
+                nyquist_rate = nyquist_info['nyquist_rate']
+
+                is_aliasing = resampling_freq < nyquist_rate
+                status_text = "Aliasing Risk!" if is_aliasing else "Good Sampling"
+                status_color = "#EF4444" if is_aliasing else "#10B981"
+
+                nyquist_output = html.Div([
+                    html.P(f"Signal's Max Frequency (f_max): {f_max:.1f} Hz",
+                           style={'margin': '0px', 'fontSize': '12px'}),
+                    html.P(f"Required Nyquist Rate (> 2 * f_max): {nyquist_rate:.1f} Hz",
+                           style={'margin': '0px 0px 5px 0px', 'fontSize': '12px'}),
+                    html.Div([
+                        html.Span("Status: ", style={'fontWeight': 'bold'}),
+                        html.Span(status_text,
+                                  style={'color': 'white', 'backgroundColor': status_color, 'padding': '2px 6px',
+                                         'borderRadius': '4px', 'fontWeight': 'bold'})
+                    ])
+                ], style={'padding': '10px', 'backgroundColor': '#F9FAFB', 'borderRadius': '6px'})
+
+        return main_fig, state, fft_time_output, nyquist_output, freq_card_style
 
     except Exception as e:
         print(f"[combined_update] Error: {e}")
         import traceback
         traceback.print_exc()
-        return create_empty_figure("Error occurred"), {
-            "playing": False, "pos": [], "write_idx": []
-        }
+        return create_empty_figure("Error occurred"), {"playing": False, "pos": [], "write_idx": []}, "Error", "", {
+            'display': 'none'}
+
+
+@app.callback(
+    [Output("graph-preview-modal", "style"),
+     Output("preview-graph", "figure")],
+    [Input("main-graph", "clickData"),
+     Input("close-preview-btn", "n_clicks")],
+    [State("app-state", "data"),
+     State("patients-dropdown", "value"),
+     State("overlay-mode", "value"),
+     State("viz-type", "value"),
+     State("speed", "value"),
+     State("display-window", "value"),
+     State("resampling-freq", "value"),
+     State("domain-switch", "value")],
+    prevent_initial_call=True
+)
+def display_graph_preview(clickData, n_close, state, selected_patients, overlay_mode, viz_type, speed, display_window,
+                          resampling_freq, domain):
+    ctx = callback_context
+    if not ctx.triggered or not ctx.triggered_id:
+        return {'display': 'none'}, create_empty_figure()
+
+    triggered_id = ctx.triggered_id
+
+    if triggered_id == 'close-preview-btn':
+        return {'display': 'none'}, create_empty_figure()
+
+    if triggered_id == 'main-graph' and clickData:
+        try:
+            # Extract clicked channel name from customdata
+            curve = clickData['points'][0]
+            clicked_channel = curve.get('customdata')
+
+            if not clicked_channel:
+                print("Could not identify channel from clickData.")
+                return {'display': 'none'}, create_empty_figure()
+
+            # Now we have the channel, let's build a large figure for it.
+            patients = GLOBAL_DATA.get("patients", [])
+
+            fig, _, _ = make_viz_figure(
+                viz_type,
+                patients,
+                selected_patients,
+                None,
+                state,
+                display_window_val=float(display_window or 8.0),
+                speed_val=float(speed or 1.0),
+                selected_channels=[clicked_channel],  # Display only the clicked channel
+                overlay=True,  # Force overlay since it's a single channel view
+                resampling_freq=resampling_freq,
+                domain=domain
+            )
+
+            # Enhance the title for the preview
+            fig.update_layout(title=f"Detailed View: {clicked_channel}", showlegend=False)
+
+            modal_style = {
+                'display': 'block', 'position': 'fixed', 'zIndex': '1000',
+                'left': 0, 'top': 0, 'width': '100%', 'height': '100%',
+                'overflow': 'auto', 'backgroundColor': 'rgba(0,0,0,0.8)'
+            }
+            return modal_style, fig
+
+        except Exception as e:
+            print(f"Error in click callback: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'display': 'none'}, create_empty_figure()
+
+    return {'display': 'none'}, create_empty_figure()
 
 
 # ---------- Run ----------
@@ -3495,4 +3761,5 @@ if __name__ == "__main__":
     if not PYEDFLIB_AVAILABLE:
         print("Warning: pyedflib not installed. EEG (EDF) support will be disabled until it's installed.")
     app.run(debug=True, host="127.0.0.1", port=8052)
+
 
