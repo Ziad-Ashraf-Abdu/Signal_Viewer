@@ -6,13 +6,17 @@ Signal Viewer is a comprehensive, modular Python-based web application suite bui
 
 The platform demonstrates advanced signal processing techniques, AI-powered inference, real-time visualization, and interactive data exploration across diverse domains.
 
-![Signal Viewer Dashboard](https://via.placeholder.com/1200x700?text=Signal+Viewer+Multi-Application+Platform)
-
 ---
 
 ## Applications
 
 ### 1. Medical Signal Analysis (Medical.py)
+
+<img width="1580" height="722" alt="image" src="https://github.com/user-attachments/assets/9e57baa3-4522-4c71-ac03-3023adf41296" />
+
+<img width="1585" height="726" alt="image" src="https://github.com/user-attachments/assets/c881c300-3fe2-43a8-a45f-15ace629ac05" />
+
+
 
 **Purpose**: Real-time visualization and AI-based classification of medical signals including ECG (electrocardiograms) and EEG (electroencephalograms) for clinical diagnostics and research.
 
@@ -27,7 +31,7 @@ The platform demonstrates advanced signal processing techniques, AI-powered infe
   - Cross-Recurrence Plots: 2D amplitude co-occurrence heatmaps
 
 - **AI-Powered Classification**:
-  - HuBERT-ECG: 12-lead ECG analysis for cardiovascular conditions (MI, LVH, Short QT Syndrome, Arrhythmia)
+  - HuBERT-ECG: 12-lead ECG analysis for cardiovascular conditions (MI, LVH, Hypertrophy, Arrhythmia)
   - BIOT EEG-PREST: 16-channel EEG analysis for neurological condition detection (epilepsy, schizophrenia, Alzheimer's , Nacrolepsy)
 
 - **Signal Processing**: Automated filtering, QRS detection, RR interval calculation
@@ -38,11 +42,46 @@ The platform demonstrates advanced signal processing techniques, AI-powered infe
 
 **Output Formats**: Interactive web interface with real-time plots, and classification predictions
 
-![Medical Signal Interface](https://via.placeholder.com/1200x600?text=ECG+EEG+Real-Time+Monitoring+Interface)
+### Myocardial Infarction
+<table>
+  <tr>
+    <td><img src="https://github.com/user-attachments/assets/55a9791c-51a9-48b0-9df8-ee4788489c04" width="450"></td>
+    <td><img src="https://github.com/user-attachments/assets/fbe6e20e-5c19-4565-a782-75bd084962f0" width="450"></td>
+  </tr>
+  <tr>
+    <td><img src="https://github.com/user-attachments/assets/fd03d3c1-571f-44a3-8cd7-0b5d7742b980" width="450"></td>
+    <td><img src="https://github.com/user-attachments/assets/f16078be-9f50-4578-bd28-3aa7ca983a07" width="450"></td>
+  </tr>
+</table>
+
+<img width="1896" height="903" alt="Screenshot 2025-10-11 202403" src="https://github.com/user-attachments/assets/12f5cc27-b9e3-4f11-aeee-b01f9a933a8f" />
+
+### Schizophrenia
+<table>
+  <tr>
+    <td><img src="https://github.com/user-attachments/assets/304dccdd-2291-4ec5-bd8d-792c195d0751" width="500"></td>
+    <td><img src="https://github.com/user-attachments/assets/8198c32f-39df-4591-888c-1f71ca057507" width="500"></td>
+  </tr>
+  <tr>
+    <td><img src="https://github.com/user-attachments/assets/9d6729aa-93f7-4cf3-9ce0-5589cc4c7553" width="500"></td>
+    <td><img src="https://github.com/user-attachments/assets/3a633da6-c6af-4c35-8ba8-864d87f2e0ae" width="500"></td>
+  </tr>
+</table>
+
+<img width="1883" height="911" alt="Screenshot 2025-10-11 202608" src="https://github.com/user-attachments/assets/93edf4f3-9a61-4b81-bf29-6213e43dd08c" />
+
+
+
 
 ---
 
 ### 2. Doppler Effect Simulator (doppler_app.py)
+
+<img width="1587" height="727" alt="image" src="https://github.com/user-attachments/assets/0db1cba0-fa48-47ff-83d3-f44196fbf980" />
+<img width="1213" height="339" alt="image" src="https://github.com/user-attachments/assets/c8718ed9-4b4a-4ea7-80c8-0ad0562683b5" />
+<img width="1581" height="723" alt="image" src="https://github.com/user-attachments/assets/b9b72dec-58cd-4981-a011-3573bb5de557" />
+
+
 
 **Purpose**: Interactive physics simulation demonstrating the Doppler effect with real-time frequency calculations, visual representation, and audio synthesis.
 
@@ -80,11 +119,18 @@ The platform demonstrates advanced signal processing techniques, AI-powered infe
 
 **Output Formats**: Interactive visualization, real-time audio synthesis, statistical reports
 
-![Doppler Simulator Interface](https://via.placeholder.com/1200x600?text=Doppler+Effect+Real-Time+Simulation)
+<img width="1225" height="335" alt="image" src="https://github.com/user-attachments/assets/8fc66c9a-7bf9-4336-8842-2384923bcbdb" />
+
+
+![Dash-GoogleChrome2025-10-1119-10-25-ezgif com-video-to-gif-converter](https://github.com/user-attachments/assets/30a2ba43-12e8-40df-94c3-7a16775957de)
+
+
 
 ---
 
 ### 3. SAR Data Analysis Platform (sar_app.py)
+
+<img width="1585" height="729" alt="image" src="https://github.com/user-attachments/assets/8d11d46b-984f-405f-972d-bfd8589b757e" />
 
 **Purpose**: Advanced processing and analysis of Synthetic Aperture Radar (SAR) imagery with statistical analysis, and feature extraction.
 
@@ -104,7 +150,7 @@ The platform demonstrates advanced signal processing techniques, AI-powered infe
 - **Advanced Visualization**:
   - Raw SAR intensity image display
   - Interactive histogram with frequency distribution
-  - Intensity-based thresholding 
+  - Threshold Filter (Adjust the slider to highlight pixels below a certain intensity)
 
 - **Feature Detection**:
   - Automated backscatter region identification
@@ -119,11 +165,17 @@ The platform demonstrates advanced signal processing techniques, AI-powered infe
 
 **Output Formats**: Statistical reports, feature extractions, intensity distributions
 
-![SAR Analysis Platform](https://via.placeholder.com/1200x600?text=SAR+Image+Analysis+Dashboard)
+<img width="1583" height="728" alt="image" src="https://github.com/user-attachments/assets/6fcffa78-d479-43f3-a09d-f623c2358026" />
+<img width="1584" height="728" alt="image" src="https://github.com/user-attachments/assets/78c64810-97ec-4b68-a8b7-59191c0ad951" />
+
+
+
 
 ---
 
 ### 4. Drone Audio Detection System (app.py)
+
+---<img width="1218" height="495" alt="Screenshot 2025-10-11 183244" src="https://github.com/user-attachments/assets/42216304-b75d-476e-a8b3-3e5dcf307a69" />
 
 **Purpose**: Real-time acoustic event detection and classification using deep learning models trained on drone sound signatures and acoustic patterns.
 
@@ -159,18 +211,14 @@ The platform demonstrates advanced signal processing techniques, AI-powered infe
   - Top prediction with confidence percentage
   - All classification scores with probability distributions
   - Per-chunk analysis results
-    
+
+    <img width="1584" height="724" alt="Screenshot 2025-10-11 184942" src="https://github.com/user-attachments/assets/209c67ea-b6eb-43c0-bdd7-44db65675409" />
+
+    <img width="1584" height="727" alt="Screenshot 2025-10-11 185006" src="https://github.com/user-attachments/assets/2c71241d-17c9-491c-89ce-47e85af0962c" />
+
 
 **Model Performance**: Optimized for drone detection with validation on multiple acoustic datasets
 
 **Use Cases**: Drone detection systems, acoustic surveillance, wildlife monitoring, environmental sound classification, security applications
 
 **Output Formats**: Classification predictions, audio waveforms, acoustic metrics, confidence distributions
-
-![Drone Audio Detection Interface](https://via.placeholder.com/1200x600?text=Drone+Audio+Classification+System)
-
----
-
-
-
-
