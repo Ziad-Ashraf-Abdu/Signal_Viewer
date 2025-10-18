@@ -776,11 +776,11 @@ class ConditionIdentificationModel:
         # Resample to 100 Hz
         if original_fs is not None and SCIPY_AVAILABLE and original_fs != self.eeg_sampling_rate and len(sig) > 10:
             try:
-                num_samples = int(len(sig) * self.ecg_sampling_rate / float(original_fs))
+                num_samples = int(len(sig) * self.eeg_sampling_rate / float(original_fs))
                 sig = resample(sig, num_samples)
             except Exception:
                 x_old = np.linspace(0, 1, len(sig))
-                x_new = np.linspace(0, 1, int(len(sig) * self.ecg_sampling_rate / float(original_fs)))
+                x_new = np.linspace(0, 1, int(len(sig) * self.eeg_sampling_rate / float(original_fs)))
                 sig = np.interp(x_new, x_old, sig).astype(np.float32)
 
         # Z-score normalization for EEG
@@ -2215,7 +2215,7 @@ app.layout = html.Div(style=app_style, children=[
                     {'label': 'Time Domain', 'value': 'time'},
                     {'label': 'Frequency Domain', 'value': 'frequency'}
                 ],
-                value='frequency',
+                value='time',
                 labelStyle={'display': 'inline-block', 'marginRight': '12px'}
             ),
 
@@ -2254,6 +2254,15 @@ app.layout = html.Div(style=app_style, children=[
             ]),
         ]),
 
+        # --- Time Domain Analysis Card (visibility controlled by callback) ---
+        html.Div(id='time-analysis-card', style={**card_style}, children=[
+            html.H2("Time Domain Sampling Analysis", style=card_header_style),
+            html.Label("Set Sampling Period Ts (ms)", style={'marginTop': '12px'}),
+            dcc.Input(id="sampling-period-input", type="number", value=None,
+                      placeholder="e.g., 20ms for 50Hz", style={'width': '100%'}),
+            html.Div(id='nyquist-info-time', style={'marginTop': '12px'}),
+        ]),
+
         # --- Frequency Analysis Card (visibility controlled by callback) ---
         html.Div(id='freq-analysis-card', style={**card_style}, children=[
             html.H2("Frequency Analysis", style=card_header_style),
@@ -2271,7 +2280,8 @@ app.layout = html.Div(style=app_style, children=[
                    style={'fontSize': '14px', 'color': '#6B7280', 'marginBottom': '16px'}),
             html.Div(style={'display': 'flex', 'flexDirection': 'column', 'gap': '10px'}, children=[
                 html.Button("Run 1D AI Analysis (Signal)", id="ai-analyze-btn", n_clicks=0, style=ai_button_1d_style),
-                html.Button("Run 2D AI Analysis (Image)", id="ai-analyze-2d-btn", n_clicks=0, style=ai_button_2d_style),
+                html.Button("Run 2D AI Analysis (Image)", id="ai-analyze-2d-btn", n_clicks=0,
+                            style=ai_button_2d_style),
             ]),
         ]),
 
@@ -3049,7 +3059,7 @@ def _calculate_fft(signal_segment, original_fs, resampling_freq):
 def make_viz_figure(viz_type, patients, selected_idxs, show_all_channels, state,
                     display_window_val=8.0, speed_val=1.0, collapse_flag=None,
                     selected_channels=None, overlay=True, resampling_freq=500.0,
-                    domain='frequency'):
+                    domain='frequency', sampling_period_ms=None):
     """
     Unified visualization builder for both Time and Frequency domains.
     """
@@ -3095,6 +3105,18 @@ def make_viz_figure(viz_type, patients, selected_idxs, show_all_channels, state,
         # TIME DOMAIN VISUALIZATIONS
         # ==================================
         if domain == 'time':
+            if sampling_period_ms is not None:
+                try:
+                    ts_user = float(sampling_period_ms) / 1000.0
+                    if ts_user > 0 and (1.0 / ts_user) < fs:  # only downsample
+                        fs_user = 1.0 / ts_user
+                        step = int(round(fs / fs_user))
+                        step = max(1, step)
+                        if step > 1:
+                            current_segment_df = current_segment_df.iloc[::step]
+                except (ValueError, TypeError):
+                    pass  # Ignore if input is invalid
+
             unit = "mV" if GLOBAL_DATA.get("dataset_type", "ECG") == "ECG" else "µV"
 
             # --- Standard Monitor ---
@@ -3498,7 +3520,9 @@ def create_empty_figure(title="No data"):
      Output("app-state", "data"),
      Output("fft-computation-time", "children"),
      Output("nyquist-info", "children"),
-     Output("freq-analysis-card", "style")],
+     Output("freq-analysis-card", "style"),
+     Output("nyquist-info-time", "children"),
+     Output("time-analysis-card", "style")],
     [Input("interval", "n_intervals"),
      Input("play-btn", "n_clicks"),
      Input("pause-btn", "n_clicks"),
@@ -3512,16 +3536,19 @@ def create_empty_figure(title="No data"):
      State("speed", "value"),
      State("chunk-ms", "value"),
      State("display-window", "value"),
-     State("resampling-freq", "value")],
+     State("resampling-freq", "value"),
+     State("sampling-period-input", "value")],
     prevent_initial_call=False
 )
 def combined_update(n_intervals, n_play, n_pause, n_reset, domain, state,
                     selected, selected_channels, overlay_mode, viz_type,
-                    speed, chunk_ms, display_window, resampling_freq):
+                    speed, chunk_ms, display_window, resampling_freq,
+                    sampling_period_ms):
     try:
         patients = GLOBAL_DATA.get("patients", [])
         if not patients:
-            return create_empty_figure("No patients loaded"), {"playing": False, "pos": [], "write_idx": []}, "", "", {
+            empty_fig = create_empty_figure("No patients loaded")
+            return empty_fig, {"playing": False, "pos": [], "write_idx": []}, "", "", {'display': 'none'}, "", {
                 'display': 'none'}
 
         # Initialize state
@@ -3628,38 +3655,85 @@ def combined_update(n_intervals, n_play, n_pause, n_reset, domain, state,
             selected_channels=selected_channels,
             overlay=overlay,
             resampling_freq=resampling_freq,
-            domain=domain
+            domain=domain,
+            sampling_period_ms=sampling_period_ms
         )
 
-        # --- Prepare outputs ---
+        # --- Prepare outputs for analysis cards ---
         fft_time_output = ""
         nyquist_output = ""
+        nyquist_output_time = ""
         freq_card_style = {'display': 'none'}
+        time_card_style = {'display': 'none'}
 
-        if domain == 'frequency':
-            freq_card_style = {**card_style}  # Make it visible
+        if domain == 'time':
+            time_card_style = {**card_style}
+            if selected_idxs:
+                pid = selected_idxs[0]
+                p = patients[pid]
+                original_fs = float(p.get("header", {}).get("sampling_frequency", 250.0))
 
-            # 1. Computation Time
+                # Determine the effective sampling frequency for analysis display
+                effective_fs = original_fs
+                if sampling_period_ms is not None:
+                    try:
+                        ts_user = float(sampling_period_ms) / 1000.0
+                        if ts_user > 0:
+                            effective_fs = 1.0 / ts_user
+                    except (ValueError, TypeError):
+                        pass  # Keep original_fs if input is invalid
+
+                win = int(display_window_val * original_fs)
+                pos = int(state["pos"][pid])
+                start = max(0, pos - win)
+                current_segment_df = p["ecg"].iloc[start:pos]
+
+                all_channels = [c for c in p["ecg"].columns if c.startswith("signal_")]
+                if all_channels and not current_segment_df.empty:
+                    # Always calculate f_max on the original, full-resolution signal
+                    first_channel_data = current_segment_df[all_channels[0]].values
+                    _, _, _, _, f_max = _calculate_fft(first_channel_data, original_fs, original_fs)
+
+                    if f_max > 0:
+                        Ts = 1.0 / effective_fs
+                        Ts_max = 1.0 / (2 * f_max)
+
+                        is_good_sampling = Ts < Ts_max
+                        status_text = "Good Sampling" if is_good_sampling else "Aliasing Risk!"
+                        status_color = "#10B981" if is_good_sampling else "#EF4444"
+
+                        nyquist_output_time = html.Div([
+                            html.P(f"Signal's Max Frequency (f_max): {f_max:.1f} Hz",
+                                   style={'margin': '0px', 'fontSize': '12px'}),
+                            html.P(f"Current Sampling Period (Ts): {Ts * 1000:.2f} ms",
+                                   style={'margin': '0px', 'fontSize': '12px'}),
+                            html.P(f"Required Period (< 1 / (2*f_max)): {Ts_max * 1000:.2f} ms",
+                                   style={'margin': '0px 0px 5px 0px', 'fontSize': '12px'}),
+                            html.Div([
+                                html.Span("Status: ", style={'fontWeight': 'bold'}),
+                                html.Span(status_text, style={'color': 'white', 'backgroundColor': status_color,
+                                                              'padding': '2px 6px', 'borderRadius': '4px',
+                                                              'fontWeight': 'bold'})
+                            ])
+                        ], style={'padding': '10px', 'backgroundColor': '#F9FAFB', 'borderRadius': '6px'})
+
+        elif domain == 'frequency':
+            freq_card_style = {**card_style}
             if comp_time is not None:
                 time_ms = comp_time * 1000
-                color = "#3B82F6"  # Blue
-                if time_ms > 50: color = "#F59E0B"  # Yellow
-                if time_ms > 100: color = "#EF4444"  # Red
-
+                color = "#3B82F6"
+                if time_ms > 50: color = "#F59E0B"
+                if time_ms > 100: color = "#EF4444"
                 fft_time_output = html.Div([
                     html.Span("FFT Compute Time: ", style={'fontWeight': 'bold'}),
                     html.Span(f"{time_ms:.1f} ms", style={'color': color, 'fontSize': '16px', 'fontWeight': 'bold'})
                 ])
-
-            # 2. Nyquist/Aliasing Info
             if nyquist_info and nyquist_info['f_max'] > 0:
                 f_max = nyquist_info['f_max']
                 nyquist_rate = nyquist_info['nyquist_rate']
-
-                is_aliasing = resampling_freq < nyquist_rate
+                is_aliasing = (resampling_freq or 500) < nyquist_rate
                 status_text = "Aliasing Risk!" if is_aliasing else "Good Sampling"
                 status_color = "#EF4444" if is_aliasing else "#10B981"
-
                 nyquist_output = html.Div([
                     html.P(f"Signal's Max Frequency (f_max): {f_max:.1f} Hz",
                            style={'margin': '0px', 'fontSize': '12px'}),
@@ -3673,13 +3747,14 @@ def combined_update(n_intervals, n_play, n_pause, n_reset, domain, state,
                     ])
                 ], style={'padding': '10px', 'backgroundColor': '#F9FAFB', 'borderRadius': '6px'})
 
-        return main_fig, state, fft_time_output, nyquist_output, freq_card_style
+        return main_fig, state, fft_time_output, nyquist_output, freq_card_style, nyquist_output_time, time_card_style
 
     except Exception as e:
         print(f"[combined_update] Error: {e}")
         import traceback
         traceback.print_exc()
-        return create_empty_figure("Error occurred"), {"playing": False, "pos": [], "write_idx": []}, "Error", "", {
+        empty_fig = create_empty_figure("Error occurred")
+        return empty_fig, {"playing": False, "pos": [], "write_idx": []}, "Error", "", {'display': 'none'}, "Error", {
             'display': 'none'}
 
 
@@ -3761,5 +3836,4 @@ if __name__ == "__main__":
     if not PYEDFLIB_AVAILABLE:
         print("Warning: pyedflib not installed. EEG (EDF) support will be disabled until it's installed.")
     app.run(debug=True, host="127.0.0.1", port=8052)
-
 

@@ -1,431 +1,894 @@
 import os
-import h5py
-import dash
-from dash import dcc, html, Input, Output, State
-import plotly.graph_objs as go
+import base64
+import io
 import numpy as np
+import dash
+from dash import dcc, html, Input, Output, State, callback, no_update
+import dash_bootstrap_components as dbc
+import plotly.graph_objs as go
 from scipy.fft import fft, fftfreq
 from scipy.signal import find_peaks
-import librosa
+from scipy.io import wavfile
+import urllib.parse  # ✅ Added for proper SVG encoding
 
-# ---------- CONFIG ----------
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+app.config.suppress_callback_exceptions = True
+app.title = "Doppler + Aliasing Demo - Car Audio"
+
 SPEED_OF_SOUND = 343  # m/s
-AUDIO_FILE = "CitroenC4Picasso_51.wav"
-H5_FILE = "speed_estimations_NN_1000-200-50-10-1_reg1e-3_lossMSE.h5"
 
-# ---------- UI STYLE CONSTANTS ----------
-PRIMARY_COLOR = "#4A90E2"
-ACCENT_COLOR = "#50E3C2"
-BACKGROUND_COLOR = "#F7F9FC"
-CARD_BACKGROUND_COLOR = "#FFFFFF"
-TEXT_COLOR = "#333333"
-SUBTLE_TEXT_COLOR = "#666666"
-BORDER_COLOR = "#EAEAEA"
-FONT_FAMILY = "Inter, system-ui, sans-serif"
+# Helper to create labeled input fields
+def labeled_input(label, id, value, width=80):
+    return html.Div([
+        html.Label(label, style={
+            'display': 'inline-block',
+            'width': '140px',
+            'fontWeight': '600',
+            'color': '#2c3e50',
+            'fontSize': '14px'
+        }),
+        dcc.Input(id=id, type='number', value=value, style={
+            'width': f'{width}px',
+            'padding': '8px 12px',
+            'border': '2px solid #e0e0e0',
+            'borderRadius': '8px',
+            'fontSize': '14px',
+            'transition': 'all 0.3s ease',
+            'outline': 'none'
+        })
+    ], style={'marginBottom': '15px'})
 
-CARD_STYLE = {
-    "backgroundColor": CARD_BACKGROUND_COLOR,
-    "borderRadius": "12px",
-    "padding": "24px",
-    "boxShadow": "0 4px 12px rgba(0,0,0,0.05)",
-    "border": f"1px solid {BORDER_COLOR}",
-}
 
-BUTTON_STYLE = {
-    "backgroundColor": PRIMARY_COLOR,
-    "color": "white",
-    "border": "none",
-    "borderRadius": "8px",
-    "padding": "12px 24px",
-    "fontSize": "15px",
-    "fontWeight": "600",
-    "cursor": "pointer",
-    "transition": "all 0.2s ease",
-}
+# 🔑 Makes any audio playable in browser
+def make_playable_wav(audio, sr):
+    if len(audio) == 0:
+        return ""
+    playback_sr = 22050
+    if sr >= 3000:
+        final_audio = audio
+        final_sr = sr
+    else:
+        duration_sec = len(audio) / sr
+        new_len = int(duration_sec * playback_sr)
+        if new_len == 0:
+            return ""
+        indices = np.round(np.linspace(0, len(audio) - 1, new_len)).astype(int)
+        final_audio = audio[indices]
+        final_sr = playback_sr
+    final_audio = np.clip(final_audio, -1.0, 1.0)
+    wav_data = (final_audio * 32767).astype(np.int16)
+    buf = io.BytesIO()
+    wavfile.write(buf, final_sr, wav_data)
+    wav_bytes = buf.getvalue()
+    b64 = base64.b64encode(wav_bytes).decode()
+    return f"data:audio/wav;base64,{b64}"
 
-# ----------------------------
 
-# Derived names
-vehiclename_full = os.path.splitext(os.path.basename(AUDIO_FILE))[0]
-vehiclename_prefix = vehiclename_full.split('_')[0] if '_' in vehiclename_full else vehiclename_full
+# === LAYOUT ===
+app.layout = html.Div([
+    # Header
+    html.Div([
+        html.H1("🚗 Doppler + Aliasing Demo – Car Audio", style={
+            'textAlign': 'center',
+            'color': 'white',
+            'margin': '0',
+            'padding': '30px',
+            'fontSize': '36px',
+            'fontWeight': '700',
+            'letterSpacing': '1px',
+            'textShadow': '2px 2px 4px rgba(0,0,0,0.3)'
+        }),
+        html.P("Upload a WAV file to analyze aliasing and simulate Doppler effect with real audio", style={
+            'textAlign': 'center',
+            'color': 'rgba(255,255,255,0.9)',
+            'margin': '0',
+            'paddingBottom': '20px',
+            'fontSize': '16px'
+        })
+    ], style={
+        'background': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        'marginBottom': '30px',
+        'boxShadow': '0 4px 6px rgba(0,0,0,0.1)'
+    }),
 
-# HDF5 stats placeholders
-h5_loaded = False
-speed_mode = None
-speed_mean = None
-speed_count = 0
-speed_est_array = None
-h5_error_msg = None
-h5_used_key = None
+    # === SHARED AUDIO UPLOAD ===
+    html.Div([
+        dbc.Container([
+            dbc.Row([
+                dbc.Col([
+                    html.Div([
+                        html.H3("📁 Upload Car Audio (WAV)", style={
+                            'color': '#667eea',
+                            'marginBottom': '15px',
+                            'fontSize': '24px',
+                            'fontWeight': '700'
+                        }),
+                        dcc.Upload(
+                            id='upload-audio',
+                            children=html.Div([
+                                'Drag and Drop or ',
+                                html.A('Select a WAV File')
+                            ]),
+                            style={
+                                'width': '100%',
+                                'height': '60px',
+                                'lineHeight': '60px',
+                                'borderWidth': '2px',
+                                'borderStyle': 'dashed',
+                                'borderRadius': '10px',
+                                'textAlign': 'center',
+                                'marginBottom': '15px',
+                                'backgroundColor': '#f0f4ff',
+                                'borderColor': '#667eea'
+                            },
+                            multiple=False,
+                            accept='.wav'
+                        ),
+                        html.Div(id='upload-status', style={'fontSize': '14px', 'color': '#6b7280', 'marginBottom': '10px'}),
+                    ], style={
+                        'padding': '20px',
+                        'backgroundColor': 'white',
+                        'borderRadius': '12px',
+                        'boxShadow': '0 4px 12px rgba(0,0,0,0.08)',
+                        'marginBottom': '20px'
+                    })
+                ])
+            ])
+        ], fluid=True)
+    ], style={'padding': '0 20px'}),
 
-# Try to read HDF5 dataset
-if os.path.exists(H5_FILE):
+    # === ALIASING SECTION ===
+    html.Div([
+        dbc.Container([
+            dbc.Row([
+                dbc.Col([
+                    html.H3("📉 Aliasing Demonstration", style={'color': '#10b981', 'marginBottom': '15px'}),
+                    html.Div([
+                        html.Label("Target Sampling Frequency (Hz):", style={'fontWeight': 'bold'}),
+                        dcc.Slider(
+                            id='fs-slider',
+                            min=1000,
+                            max=44100,
+                            step=100,
+                            value=22050,
+                            disabled=True
+                        ),
+                        html.Div(id='slider-value-display', style={'textAlign': 'center', 'marginTop': '10px', 'fontSize': '18px'})
+                    ], style={'padding': '20px', 'backgroundColor': '#f0fdf4', 'borderRadius': '10px', 'marginBottom': '20px'}),
+
+                    html.Div([
+                        html.H4("🔊 Original Audio"),
+                        html.Audio(id='audio-orig', controls=True, style={'width': '100%', 'margin': '10px auto', 'display': 'block'})
+                    ]),
+
+                    html.Div([
+                        html.H4("🔊 Aliased Audio (Downsampled – No Anti-Aliasing)"),
+                        html.Audio(id='audio-alias', controls=True, style={'width': '100%', 'margin': '10px auto', 'display': 'block'})
+                    ])
+                ])
+            ])
+        ], fluid=True)
+    ], style={'padding': '0 20px', 'marginBottom': '40px'}),
+
+    # === DOPPLER SECTION ===
+    html.Div([
+        dbc.Container([
+            # Audio Analysis for Doppler
+            dbc.Row([
+                dbc.Col([
+                    html.Div([
+                        html.H3("🎵 Frequency Analysis for Doppler", style={
+                            'color': '#667eea',
+                            'marginBottom': '15px',
+                            'fontSize': '24px',
+                            'fontWeight': '700'
+                        }),
+                        html.H4(id='detected-freq-display', children="Detected Frequency: — Hz", style={
+                            'color': '#ef4444',
+                            'fontSize': '20px',
+                            'fontWeight': '700',
+                            'marginBottom': '15px'
+                        }),
+                        html.Button('📊 Use This Frequency', id='use-audio-freq-btn', n_clicks=0, disabled=True, style={
+                            'padding': '10px 20px',
+                            'backgroundColor': '#667eea',
+                            'color': 'white',
+                            'border': 'none',
+                            'borderRadius': '8px',
+                            'fontSize': '14px',
+                            'fontWeight': '600',
+                            'cursor': 'pointer',
+                            'boxShadow': '0 4px 12px rgba(102, 126, 234, 0.3)',
+                            'transition': 'all 0.3s ease'
+                        })
+                    ], style={
+                        'padding': '20px',
+                        'backgroundColor': 'white',
+                        'borderRadius': '12px',
+                        'boxShadow': '0 4px 12px rgba(0,0,0,0.08)',
+                        'marginBottom': '20px'
+                    })
+                ])
+            ]),
+            dbc.Row([
+                dbc.Col([
+                    dcc.Graph(id='audio-spectrum-graph', style={'height': '350px'})
+                ])
+            ])
+        ], fluid=True)
+    ], style={'padding': '0 20px', 'marginBottom': '30px'}),
+
+    # Doppler Controls (Source + Observer)
+    html.Div([
+        html.Div([
+            # Source Panel
+            html.Div([
+                html.Div([
+                    html.H3("🔊 Sound Source", style={
+                        'color': '#667eea',
+                        'marginBottom': '20px',
+                        'fontSize': '22px',
+                        'fontWeight': '700',
+                        'borderBottom': '3px solid #667eea',
+                        'paddingBottom': '10px'
+                    }),
+                    dcc.RadioItems(
+                        id='source-type',
+                        options=[{'label': ' Moving', 'value': 'moving'},
+                                 {'label': ' Static', 'value': 'static'}],
+                        value='moving',
+                        inline=True,
+                        style={'marginBottom': '20px'},
+                        labelStyle={
+                            'marginRight': '20px',
+                            'fontSize': '15px',
+                            'fontWeight': '500'
+                        }
+                    ),
+                    html.Div([
+                        labeled_input("Start X (m):", 'source-x0', -200),
+                        labeled_input("Start Y (m):", 'source-y0', 0),
+                        html.Div(id='source-vel-inputs', children=[
+                            labeled_input("Speed (m/s):", 'source-speed', 30),
+                            labeled_input("Direction (°):", 'source-dir', 0)
+                        ])
+                    ])
+                ], style={
+                    'padding': '25px',
+                    'backgroundColor': '#f8f9ff',
+                    'borderRadius': '15px',
+                    'border': '2px solid #667eea',
+                    'boxShadow': '0 4px 12px rgba(102, 126, 234, 0.15)'
+                })
+            ], style={
+                'width': '48%',
+                'display': 'inline-block',
+                'verticalAlign': 'top'
+            }),
+
+            # Observer Panel
+            html.Div([
+                html.Div([
+                    html.H3("👂 Observer", style={
+                        'color': '#f093fb',
+                        'marginBottom': '20px',
+                        'fontSize': '22px',
+                        'fontWeight': '700',
+                        'borderBottom': '3px solid #f093fb',
+                        'paddingBottom': '10px'
+                    }),
+                    dcc.RadioItems(
+                        id='observer-type',
+                        options=[{'label': ' Moving', 'value': 'moving'},
+                                 {'label': ' Static', 'value': 'static'}],
+                        value='moving',
+                        inline=True,
+                        style={'marginBottom': '20px'},
+                        labelStyle={
+                            'marginRight': '20px',
+                            'fontSize': '15px',
+                            'fontWeight': '500'
+                        }
+                    ),
+                    html.Div([
+                        labeled_input("Start X (m):", 'observer-x0', 0),
+                        labeled_input("Start Y (m):", 'observer-y0', 0),
+                        html.Div(id='observer-vel-inputs', children=[
+                            labeled_input("Speed (m/s):", 'observer-speed', 10),
+                            labeled_input("Direction (°):", 'observer-dir', 180)
+                        ])
+                    ])
+                ], style={
+                    'padding': '25px',
+                    'backgroundColor': '#fff8fd',
+                    'borderRadius': '15px',
+                    'border': '2px solid #f093fb',
+                    'boxShadow': '0 4px 12px rgba(240, 147, 251, 0.15)'
+                })
+            ], style={
+                'width': '48%',
+                'display': 'inline-block',
+                'verticalAlign': 'top',
+                'marginLeft': '4%'
+            })
+        ], style={'marginBottom': '30px', 'padding': '0 20px'}),
+
+        # Global Settings
+        html.Div([
+            html.Div([
+                labeled_input("Emitted Frequency (Hz):", 'freq-input', 500, width=100)
+            ], style={
+                'display': 'inline-block',
+                'padding': '20px 40px',
+                'backgroundColor': 'white',
+                'borderRadius': '15px',
+                'boxShadow': '0 4px 12px rgba(0,0,0,0.08)',
+                'border': '2px solid #e0e0e0'
+            })
+        ], style={'textAlign': 'center', 'marginBottom': '25px'}),
+
+        # Buttons
+        html.Div([
+            html.Button('▶️ Start', id='start-btn', n_clicks=0, style={
+                'marginRight': '12px',
+                'padding': '12px 28px',
+                'backgroundColor': '#10b981',
+                'color': 'white',
+                'border': 'none',
+                'borderRadius': '10px',
+                'fontSize': '16px',
+                'fontWeight': '600',
+                'cursor': 'pointer',
+                'boxShadow': '0 4px 12px rgba(16, 185, 129, 0.3)',
+                'transition': 'all 0.3s ease',
+                'letterSpacing': '0.5px'
+            }),
+            html.Button('⏸️ Pause', id='pause-btn', n_clicks=0, style={
+                'marginRight': '12px',
+                'padding': '12px 28px',
+                'backgroundColor': '#f59e0b',
+                'color': 'white',
+                'border': 'none',
+                'borderRadius': '10px',
+                'fontSize': '16px',
+                'fontWeight': '600',
+                'cursor': 'pointer',
+                'boxShadow': '0 4px 12px rgba(245, 158, 11, 0.3)',
+                'transition': 'all 0.3s ease',
+                'letterSpacing': '0.5px'
+            }),
+            html.Button('⏹️ Reset', id='reset-btn', n_clicks=0, style={
+                'marginRight': '12px',
+                'padding': '12px 28px',
+                'backgroundColor': '#ef4444',
+                'color': 'white',
+                'border': 'none',
+                'borderRadius': '10px',
+                'fontSize': '16px',
+                'fontWeight': '600',
+                'cursor': 'pointer',
+                'boxShadow': '0 4px 12px rgba(239, 68, 68, 0.3)',
+                'transition': 'all 0.3s ease',
+                'letterSpacing': '0.5px'
+            }),
+            html.Button('🔈 Mute', id='mute-btn', n_clicks=0, style={
+                'padding': '12px 24px',
+                'backgroundColor': '#6b7280',
+                'color': 'white',
+                'border': 'none',
+                'borderRadius': '10px',
+                'fontSize': '16px',
+                'fontWeight': '600',
+                'cursor': 'pointer',
+                'boxShadow': '0 4px 12px rgba(107, 114, 128, 0.3)',
+                'transition': 'all 0.3s ease',
+                'letterSpacing': '0.5px'
+            }),
+            html.Span(id='mute-label', children='', style={
+                'marginLeft': '16px',
+                'fontWeight': '600',
+                'fontSize': '16px',
+                'color': '#374151'
+            })
+        ], style={'textAlign': 'center', 'marginBottom': '25px'}),
+
+        # Display
+        html.Div(id='frequency-display', style={
+            'fontSize': '20px',
+            'textAlign': 'center',
+            'padding': '20px',
+            'fontWeight': '600',
+            'color': '#1f2937',
+            'backgroundColor': 'white',
+            'borderRadius': '12px',
+            'margin': '0 20px 25px 20px',
+            'boxShadow': '0 4px 12px rgba(0,0,0,0.08)',
+            'border': '2px solid #e5e7eb'
+        }),
+
+        html.Div([
+            dcc.Graph(id='simulation-graph', style={'height': '60vh'})
+        ], style={
+            'padding': '0 20px',
+            'marginBottom': '30px'
+        }),
+    ]),
+
+    # === HIDDEN STORES ===
+    dcc.Store(id='simulation-running', data=False),
+    dcc.Store(id='time-elapsed', data=0),
+    dcc.Store(id='sound-freq', data=0),
+    dcc.Store(id='uploaded-audio-data', data=None),  # { 'y': [...], 'sr': int, 'dominant_freq': float }
+    dcc.Store(id='aliasing-audio', data=None),       # raw float32 array for aliasing
+
+    html.Div(id='sound-init', style={'display': 'none'}),
+    html.Div(id='sound-div', style={'display': 'none'}),
+
+    dcc.Interval(id='interval', interval=100, n_intervals=0, disabled=True)
+], style={
+    'fontFamily': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    'backgroundColor': '#f9fafb',
+    'minHeight': '100vh',
+    'paddingBottom': '40px'
+})
+
+
+# === MAIN UPLOAD HANDLER (feeds both sections) ===
+@callback(
+    [
+        Output('uploaded-audio-data', 'data'),
+        Output('aliasing-audio', 'data'),
+        Output('upload-status', 'children'),
+        Output('fs-slider', 'disabled'),
+        Output('fs-slider', 'max'),
+        Output('fs-slider', 'value'),
+        Output('fs-slider', 'marks'),
+        Output('audio-orig', 'src'),
+        Output('detected-freq-display', 'children'),
+        Output('use-audio-freq-btn', 'disabled'),
+        Output('audio-spectrum-graph', 'figure')
+    ],
+    Input('upload-audio', 'contents'),
+    State('upload-audio', 'filename')
+)
+def handle_upload_and_analyze(contents, filename):
+    if contents is None:
+        empty_fig = go.Figure()
+        empty_fig.update_layout(title="No Audio Uploaded", xaxis_title="Frequency (Hz)", yaxis_title="Magnitude")
+        return [None] * 7 + ["", "Detected Frequency: — Hz", True, empty_fig]
+
     try:
-        with h5py.File(H5_FILE, 'r') as hf:
-            available_keys = list(hf.keys())
-            candidates = [k for k in available_keys if k.startswith(vehiclename_prefix)]
-            pref1 = f"{vehiclename_prefix}_speeds_est_all"
-            pref2 = f"{vehiclename_prefix}_speeds_gt"
-            chosen_key = None
-            if pref1 in hf:
-                chosen_key = pref1
-            elif pref2 in hf:
-                chosen_key = pref2
-            elif candidates:
-                chosen_key = candidates[0]
+        _, b64 = contents.split(',')
+        wav_bytes = base64.b64decode(b64)
+        buffer = io.BytesIO(wav_bytes)
+        sr, data = wavfile.read(buffer)
 
-            if chosen_key:
-                h5_used_key = chosen_key
-                speed_est_array = np.array(hf[chosen_key])
-                speed_count = int(speed_est_array.size)
-                valid = speed_est_array[~np.isnan(speed_est_array)]
-                if valid.size > 0:
-                    vals, counts = np.unique(valid, return_counts=True)
-                    speed_mode = float(vals[np.argmax(counts)])
-                    speed_mean = float(np.mean(valid))
-                    h5_loaded = True
-            else:
-                h5_error_msg = f"No HDF5 keys for '{vehiclename_prefix}' found. Available: {available_keys}"
-    except Exception as e:
-        h5_error_msg = f"Error reading H5 file: {e}"
-else:
-    h5_error_msg = f"H5 file '{H5_FILE}' not found."
+        # Normalize to float32 mono
+        if data.ndim > 1:
+            data = data.mean(axis=1)
+        if data.dtype == np.int16:
+            data_float = data.astype(np.float32) / 32768.0
+        elif data.dtype == np.int32:
+            data_float = data.astype(np.float32) / 2147483648.0
+        else:
+            data_float = data.astype(np.float32)
 
-# ---------- AUDIO ANALYSIS ----------
-dominant_freq = 500
-audio_fig = None
-audio_loaded = False
+        # === Aliasing Section Data ===
+        aliasing_audio = data_float.tolist()
 
-if os.path.exists(AUDIO_FILE):
-    try:
-        y, sr = librosa.load(AUDIO_FILE, sr=None, mono=True)
-        N = len(y)
-        yf = fft(y)
+        # === Doppler Frequency Analysis ===
+        N = len(data_float)
+        yf = fft(data_float)
         xf = fftfreq(N, 1 / sr)[:N // 2]
         magnitude = 2.0 / N * np.abs(yf[0:N // 2])
 
         min_freq = 20
         min_idx = np.argmax(xf >= min_freq)
         peak_idx, _ = find_peaks(magnitude[min_idx:], height=np.max(magnitude) * 0.1, distance=100)
+
+        dominant_freq = 500.0
         if len(peak_idx) > 0:
             dominant_freq = float(xf[min_idx + peak_idx[0]])
 
-        audio_fig = go.Figure()
-        audio_fig.add_trace(
-            go.Scatter(x=xf, y=magnitude, mode='lines', name='Spectrum', line=dict(color=PRIMARY_COLOR, width=2)))
-        audio_fig.add_vline(x=dominant_freq, line=dict(color=ACCENT_COLOR, dash='dash', width=2),
-                            annotation_text=f"{dominant_freq:.1f} Hz")
-        audio_fig.update_layout(
-            title=dict(text="Audio Frequency Spectrum", font=dict(size=18, color=TEXT_COLOR)),
-            xaxis_title="Frequency (Hz)", yaxis_title="Magnitude",
-            xaxis_range=[0, 2000],
-            plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-            font=dict(family=FONT_FAMILY, color=SUBTLE_TEXT_COLOR),
-            margin=dict(l=50, r=30, t=60, b=50)
+        # Spectrum plot
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=xf, y=magnitude, mode='lines', name='Spectrum', line=dict(color='#667eea')))
+        fig.add_vline(
+            x=dominant_freq,
+            line=dict(color='#ef4444', dash='dash', width=3),
+            annotation_text=f"Dominant: {dominant_freq:.1f} Hz",
+            annotation_position="top right",
+            annotation_font=dict(size=14, color='#ef4444', family='Arial Black')
         )
-        audio_loaded = True
+        fig.update_layout(
+            title="Uploaded Audio Frequency Spectrum",
+            xaxis_title="Frequency (Hz)",
+            yaxis_title="Magnitude",
+            xaxis_range=[0, 2000],
+            plot_bgcolor='rgba(249, 250, 251, 0.5)',
+            paper_bgcolor='white',
+            font=dict(family='Arial, sans-serif', size=12, color='#374151')
+        )
+
+        # Marks for slider
+        marks = {i: f"{i // 1000}k" for i in range(1000, sr + 1, max(2000, sr // 8))}
+        marks[sr] = f"{sr // 1000}k"
+
+        # Original audio for playback
+        orig_src = make_playable_wav(data_float, sr)
+
+        doppler_data = {
+            'y': data_float.tolist(),
+            'sr': int(sr),
+            'dominant_freq': dominant_freq
+        }
+
+        return (
+            doppler_data,
+            aliasing_audio,
+            f"✅ Loaded: {filename} | Fs = {sr} Hz",
+            False,
+            sr,
+            min(sr, 22050),
+            marks,
+            orig_src,
+            f"Detected Frequency: {dominant_freq:.1f} Hz",
+            False,
+            fig
+        )
+
     except Exception as e:
-        print(f"Error loading audio: {e}")
-
-# ---------- DASH APP ----------
-app = dash.Dash(__name__)
-
-
-def labeled_input(label, id, value, width=80):
-    return html.Div([
-        html.Label(label, style={'fontWeight': '500', 'color': SUBTLE_TEXT_COLOR, "marginRight": "10px"}),
-        dcc.Input(id=id, type='number', value=value, style={
-            'width': f'{width}px', 'padding': '8px 12px', 'borderRadius': '6px',
-            'border': f'1px solid {BORDER_COLOR}', 'fontSize': '14px', 'textAlign': 'center'
-        })
-    ], style={'display': 'flex', 'alignItems': 'center', 'justifyContent': 'space-between', 'marginBottom': '12px'})
+        empty_fig = go.Figure()
+        empty_fig.update_layout(title="Error", xaxis_title="Frequency (Hz)", yaxis_title="Magnitude")
+        return (
+            None, None, f"❌ Error: {str(e)}", True, 44100, 22050, {}, "",
+            "Detected Frequency: — Hz", True, empty_fig
+        )
 
 
-def hdf5_summary_card():
-    if not h5_loaded:
-        return html.Div(style=CARD_STYLE, children=[
-            html.H3("HDF5 Summary", style={"marginTop": 0}),
-            html.P(h5_error_msg or "HDF5 data could not be loaded.")
-        ])
+# === ALIASING CALLBACKS ===
+@callback(
+    Output('audio-alias', 'src'),
+    Input('fs-slider', 'value'),
+    State('aliasing-audio', 'data'),
+    State('uploaded-audio-data', 'data')
+)
+def update_aliasing(target_fs, audio_list, doppler_data):
+    if audio_list is None or doppler_data is None:
+        return ""
+    data = np.array(audio_list, dtype=np.float32)
+    orig_sr = doppler_data['sr']
 
-    return html.Div(style=CARD_STYLE, children=[
-        html.H3("HDF5 Summary", style={"marginTop": 0, "marginBottom": "20px"}),
-        html.Div([
-            html.Div([html.Span("Estimates Found", style={"color": SUBTLE_TEXT_COLOR}),
-                      html.Span(speed_count, style={"fontWeight": "bold", "fontSize": "18px"})],
-                     style={'textAlign': 'center'}),
-            html.Div([html.Span("Mode Speed (m/s)", style={"color": SUBTLE_TEXT_COLOR}),
-                      html.Span(f"{speed_mode:.2f}", style={"fontWeight": "bold", "fontSize": "18px"})],
-                     style={'textAlign': 'center'}),
-            html.Div([html.Span("Mean Speed (m/s)", style={"color": SUBTLE_TEXT_COLOR}),
-                      html.Span(f"{speed_mean:.2f}", style={"fontWeight": "bold", "fontSize": "18px"})],
-                     style={'textAlign': 'center'}),
-        ], style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr 1fr', 'gap': '10px'})
-    ])
+    if target_fs >= orig_sr:
+        aliased = data
+        aliased_sr = orig_sr
+    else:
+        ratio = orig_sr / target_fs
+        new_len = int(len(data) / ratio)
+        indices = (np.arange(new_len) * ratio).astype(int)
+        indices = indices[indices < len(data)]
+        aliased = data[indices]
+        aliased_sr = target_fs
 
-
-app.layout = html.Div(style={"fontFamily": FONT_FAMILY, "backgroundColor": BACKGROUND_COLOR, "padding": "40px"},
-                      children=[
-                          html.Div(style={"maxWidth": "1200px", "margin": "0 auto"}, children=[
-                              # Header
-                              html.Div([
-                                  html.H1("🔊 Doppler Effect Simulator",
-                                          style={'textAlign': 'center', 'color': TEXT_COLOR, 'fontWeight': 'bold'}),
-                                  html.P(
-                                      "An interactive physics simulation with real-time audio and frequency analysis",
-                                      style={'textAlign': 'center', 'color': SUBTLE_TEXT_COLOR, 'fontSize': '16px'}),
-                              ], style={'marginBottom': '40px'}),
-
-                              # Top Row: HDF5 Summary and Audio Analysis
-                              html.Div(style={'display': 'grid', 'gridTemplateColumns': '1fr 2fr', 'gap': '24px',
-                                              'marginBottom': '24px'}, children=[
-                                  hdf5_summary_card(),
-                                  html.Div(style=CARD_STYLE, children=[
-                                      html.H3(f"Audio Analysis: {os.path.basename(AUDIO_FILE)}",
-                                              style={"marginTop": 0}),
-                                      html.Div([
-                                          html.P(f"Detected Dominant Frequency:",
-                                                 style={'color': SUBTLE_TEXT_COLOR, 'margin': '0'}),
-                                          html.H4(f"{dominant_freq:.1f} Hz",
-                                                  style={'color': PRIMARY_COLOR, 'fontSize': '28px',
-                                                         'fontWeight': 'bold', 'margin': '5px 0 15px 0'}),
-                                          html.Button('Use This Frequency', id='use-audio-freq-btn', n_clicks=0,
-                                                      style=BUTTON_STYLE)
-                                      ], style={'marginBottom': '20px'}),
-                                      dcc.Graph(figure=audio_fig,
-                                                style={'height': '250px'}) if audio_loaded else html.P(
-                                          "Audio file not found or failed to load.")
-                                  ])
-                              ]),
-
-                              # Middle Row: Controls
-                              html.Div(style={**CARD_STYLE, 'marginBottom': '24px'}, children=[
-                                  html.Div(
-                                      style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr 1fr', 'gap': '24px',
-                                             'alignItems': 'start'}, children=[
-                                          # Source Controls
-                                          html.Div([
-                                              html.H3("🔊 Sound Source", style={'marginTop': 0}),
-                                              dcc.RadioItems(id='source-type',
-                                                             options=[{'label': ' Moving', 'value': 'moving'},
-                                                                      {'label': ' Static', 'value': 'static'}],
-                                                             value='moving', inline=True,
-                                                             labelStyle={'marginRight': '15px'}),
-                                              html.Hr(
-                                                  style={'border': f'1px solid {BORDER_COLOR}', 'margin': '15px 0'}),
-                                              labeled_input("Start X (m):", 'source-x0', -200),
-                                              labeled_input("Start Y (m):", 'source-y0', 0),
-                                              html.Div(id='source-vel-inputs', children=[
-                                                  labeled_input("Speed (m/s):", 'source-speed', 30),
-                                                  labeled_input("Direction (°):", 'source-dir', 0)
-                                              ])
-                                          ]),
-                                          # Observer Controls
-                                          html.Div([
-                                              html.H3("👂 Observer", style={'marginTop': 0}),
-                                              dcc.RadioItems(id='observer-type',
-                                                             options=[{'label': ' Moving', 'value': 'moving'},
-                                                                      {'label': ' Static', 'value': 'static'}],
-                                                             value='moving', inline=True,
-                                                             labelStyle={'marginRight': '15px'}),
-                                              html.Hr(
-                                                  style={'border': f'1px solid {BORDER_COLOR}', 'margin': '15px 0'}),
-                                              labeled_input("Start X (m):", 'observer-x0', 0),
-                                              labeled_input("Start Y (m):", 'observer-y0', 0),
-                                              html.Div(id='observer-vel-inputs', children=[
-                                                  labeled_input("Speed (m/s):", 'observer-speed', 10),
-                                                  labeled_input("Direction (°):", 'observer-dir', 180)
-                                              ])
-                                          ]),
-                                          # Frequency & Sim Controls
-                                          html.Div([
-                                              html.H3("⚙️ Simulation", style={'marginTop': 0}),
-                                              labeled_input("Emitted Freq (Hz):", 'freq-input', int(dominant_freq),
-                                                            width=100),
-                                              html.Hr(
-                                                  style={'border': f'1px solid {BORDER_COLOR}', 'margin': '15px 0'}),
-                                              html.Div([
-                                                  html.Button('▶️ Start', id='start-btn', n_clicks=0,
-                                                              style={**BUTTON_STYLE, 'backgroundColor': '#4CAF50'}),
-                                                  html.Button('⏸️ Pause', id='pause-btn', n_clicks=0,
-                                                              style={**BUTTON_STYLE, 'backgroundColor': '#FFA500'}),
-                                                  html.Button('⏹️ Reset', id='reset-btn', n_clicks=0,
-                                                              style={**BUTTON_STYLE, 'backgroundColor': '#F44336'}),
-                                                  html.Button('🔈 Mute', id='mute-btn', n_clicks=0, style=BUTTON_STYLE),
-                                              ], style={'display': 'grid', 'gridTemplateColumns': '1fr 1fr',
-                                                        'gap': '10px'}),
-                                              html.Span(id='mute-label',
-                                                        style={'textAlign': 'center', 'display': 'block',
-                                                               'marginTop': '10px', 'color': PRIMARY_COLOR,
-                                                               'fontWeight': 'bold'})
-                                          ])
-                                      ])
-                              ]),
-
-                              # Bottom Row: Simulation
-                              html.Div(style=CARD_STYLE, children=[
-                                  html.Div(id='frequency-display',
-                                           style={'textAlign': 'center', 'padding': '15px', 'fontWeight': '500',
-                                                  'fontSize': '18px', 'color': TEXT_COLOR,
-                                                  'backgroundColor': BACKGROUND_COLOR, 'borderRadius': '8px',
-                                                  'marginBottom': '20px'}),
-                                  dcc.Graph(id='simulation-graph', style={'height': '500px'})
-                              ]),
-
-                              # Hidden stores and intervals
-                              dcc.Store(id='simulation-running', data=False),
-                              dcc.Store(id='time-elapsed', data=0),
-                              dcc.Store(id='sound-freq', data=0),
-                              html.Div(id='sound-init', style={'display': 'none'}),
-                              html.Div(id='sound-div', style={'display': 'none'}),
-                              dcc.Interval(id='interval', interval=100, n_intervals=0, disabled=True),
-                          ])
-                      ])
+    return make_playable_wav(aliased, aliased_sr)
 
 
-# ---------- CALLBACKS ----------
-@app.callback(Output('freq-input', 'value'), Input('use-audio-freq-btn', 'n_clicks'), prevent_initial_call=True)
-def use_audio_freq(n_clicks):
-    return int(dominant_freq)
+@callback(
+    Output('slider-value-display', 'children'),
+    Input('fs-slider', 'value')
+)
+def display_slider_value(value):
+    return f"Aliasing Sampling Frequency: {value} Hz"
 
 
-@app.callback(Output('source-vel-inputs', 'style'), Input('source-type', 'value'))
+# === DOPPLER CALLBACKS ===
+@callback(
+    Output('freq-input', 'value'),
+    Input('use-audio-freq-btn', 'n_clicks'),
+    State('uploaded-audio-data', 'data'),
+    prevent_initial_call=True
+)
+def use_audio_freq(n_clicks, audio_data):
+    if audio_data and 'dominant_freq' in audio_data:
+        return int(audio_data['dominant_freq'])
+    return 500
+
+
+@app.callback(
+    Output('source-vel-inputs', 'style'),
+    Input('source-type', 'value')
+)
 def toggle_source_vel(source_type):
     return {} if source_type == 'moving' else {'display': 'none'}
 
 
-@app.callback(Output('observer-vel-inputs', 'style'), Input('observer-type', 'value'))
+@app.callback(
+    Output('observer-vel-inputs', 'style'),
+    Input('observer-type', 'value')
+)
 def toggle_observer_vel(observer_type):
     return {} if observer_type == 'moving' else {'display': 'none'}
 
 
 @app.callback(
-    [Output('interval', 'disabled'), Output('simulation-running', 'data'), Output('time-elapsed', 'data')],
-    [Input('start-btn', 'n_clicks'), Input('pause-btn', 'n_clicks'), Input('reset-btn', 'n_clicks'),
+    [Output('interval', 'disabled'),
+     Output('simulation-running', 'data'),
+     Output('time-elapsed', 'data')],
+    [Input('start-btn', 'n_clicks'),
+     Input('pause-btn', 'n_clicks'),
+     Input('reset-btn', 'n_clicks'),
      Input('interval', 'n_intervals')],
-    [State('simulation-running', 'data'), State('time-elapsed', 'data')]
+    [State('simulation-running', 'data'),
+     State('time-elapsed', 'data')]
 )
 def control_simulation(start_clicks, pause_clicks, reset_clicks, n_intervals, is_running, time_elapsed):
     ctx = dash.callback_context
-    if not ctx.triggered: return True, False, 0
+    if not ctx.triggered:
+        return True, False, 0
     trigger_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    if trigger_id == 'reset-btn': return True, False, 0
-    if trigger_id == 'start-btn': return False, True, time_elapsed
-    if trigger_id == 'pause-btn': return True, False, time_elapsed
-    if trigger_id == 'interval' and is_running: return False, True, round(time_elapsed + 0.1, 4)
+    if trigger_id == 'reset-btn':
+        return True, False, 0
+    if trigger_id == 'start-btn':
+        return False, True, time_elapsed
+    if trigger_id == 'pause-btn':
+        return True, False, time_elapsed
+    if trigger_id == 'interval' and is_running:
+        return False, True, round(time_elapsed + 0.1, 4)
     return True, False, time_elapsed
 
 
 @app.callback(
-    [Output('simulation-graph', 'figure'), Output('frequency-display', 'children'), Output('sound-freq', 'data')],
-    [Input('time-elapsed', 'data'), Input('freq-input', 'value'), Input('source-type', 'value'),
+    [Output('simulation-graph', 'figure'),
+     Output('frequency-display', 'children'),
+     Output('sound-freq', 'data')],
+    [Input('simulation-running', 'data'),
+     Input('time-elapsed', 'data'),
+     Input('freq-input', 'value'),
+     Input('source-type', 'value'),
      Input('observer-type', 'value'),
-     Input('source-x0', 'value'), Input('source-y0', 'value'), Input('observer-x0', 'value'),
+     Input('source-x0', 'value'),
+     Input('source-y0', 'value'),
+     Input('observer-x0', 'value'),
      Input('observer-y0', 'value'),
-     Input('source-speed', 'value'), Input('source-dir', 'value'), Input('observer-speed', 'value'),
+     Input('source-speed', 'value'),
+     Input('source-dir', 'value'),
+     Input('observer-speed', 'value'),
      Input('observer-dir', 'value')]
 )
-def update_display(t, f_emit, src_type, obs_type, src_x0, src_y0, obs_x0, obs_y0, src_speed, src_dir, obs_speed,
-                   obs_dir):
-    is_running = dash.callback_context.triggered_id != 'time-elapsed' or t > 0
+def update_display(is_running, t, f_emit,
+                   src_type, obs_type,
+                   src_x0, src_y0, obs_x0, obs_y0,
+                   src_speed, src_dir, obs_speed, obs_dir):
+    src_x0 = src_x0 if src_x0 is not None else -200
+    src_y0 = src_y0 if src_y0 is not None else 0
+    obs_x0 = obs_x0 if obs_x0 is not None else 0
+    obs_y0 = obs_y0 if obs_y0 is not None else 0
+    f_emit = f_emit if f_emit is not None else 500
+    src_speed = src_speed if src_speed is not None else (30 if src_type == 'moving' else 0)
+    src_dir = src_dir if src_dir is not None else 0
+    obs_speed = obs_speed if obs_speed is not None else (10 if obs_type == 'moving' else 0)
+    obs_dir = obs_dir if obs_dir is not None else 0
 
-    src_x0, src_y0 = (src_x0 or -200), (src_y0 or 0)
-    obs_x0, obs_y0 = (obs_x0 or 0), (obs_y0 or 0)
-    f_emit = f_emit or int(dominant_freq)
-    src_speed = src_speed if (src_type == 'moving' and src_speed is not None) else 0
-    obs_speed = obs_speed if (obs_type == 'moving' and obs_speed is not None) else 0
-    src_dir, obs_dir = src_dir or 0, obs_dir or 0
+    if src_type == 'moving':
+        theta_s = np.radians(src_dir)
+        src_x = src_x0 + src_speed * np.cos(theta_s) * t
+        src_y = src_y0 + src_speed * np.sin(theta_s) * t
+    else:
+        src_x, src_y = src_x0, src_y0
 
-    src_x = src_x0 + src_speed * np.cos(np.radians(src_dir)) * t
-    src_y = src_y0 + src_speed * np.sin(np.radians(src_dir)) * t
-    obs_x = obs_x0 + obs_speed * np.cos(np.radians(obs_dir)) * t
-    obs_y = obs_y0 + obs_speed * np.sin(np.radians(obs_dir)) * t
+    if obs_type == 'moving':
+        theta_o = np.radians(obs_dir)
+        obs_x = obs_x0 + obs_speed * np.cos(theta_o) * t
+        obs_y = obs_y0 + obs_speed * np.sin(theta_o) * t
+    else:
+        obs_x, obs_y = obs_x0, obs_y0
 
-    dx, dy = obs_x - src_x, obs_y - src_y
+    dx = obs_x - src_x
+    dy = obs_y - src_y
     distance = np.sqrt(dx ** 2 + dy ** 2)
 
-    v_src_rad, v_obs_rad = 0.0, 0.0
+    v_src_rad = 0.0
+    v_obs_rad = 0.0
+
     if distance > 1e-6:
-        ur_x, ur_y = dx / distance, dy / distance
-        v_sx = src_speed * np.cos(np.radians(src_dir))
-        v_sy = src_speed * np.sin(np.radians(src_dir))
-        v_src_rad = v_sx * ur_x + v_sy * ur_y
-        v_ox = obs_speed * np.cos(np.radians(obs_dir))
-        v_oy = obs_speed * np.sin(np.radians(obs_dir))
-        v_obs_rad = -(v_ox * ur_x + v_oy * ur_y)
+        ur_x = dx / distance
+        ur_y = dy / distance
+
+        if src_type == 'moving':
+            v_sx = src_speed * np.cos(np.radians(src_dir))
+            v_sy = src_speed * np.sin(np.radians(src_dir))
+            v_src_rad = v_sx * ur_x + v_sy * ur_y
+
+        if obs_type == 'moving':
+            v_ox = obs_speed * np.cos(np.radians(obs_dir))
+            v_oy = obs_speed * np.sin(np.radians(obs_dir))
+            v_obs_rad = -(v_ox * ur_x + v_oy * ur_y)
 
     denominator = SPEED_OF_SOUND - v_src_rad
-    f_perceived = f_emit * (SPEED_OF_SOUND + v_obs_rad) / denominator if abs(denominator) > 1e-6 else f_emit
-    f_perceived = round(max(20, min(20000, f_perceived)), 1)
+    if abs(denominator) < 1e-6:
+        f_perceived = f_emit
+    else:
+        f_perceived = f_emit * (SPEED_OF_SOUND + v_obs_rad) / denominator
 
-    status = "Running" if is_running and t > 0 else ("Paused" if t > 0 else "Stopped")
-    freq_text = f"Status: {status} | Emitted: {f_emit} Hz → Perceived: {f_perceived} Hz | Time: {t:.1f} s"
-    sound_freq = f_perceived if is_running and t > 0 else 0
+    f_perceived = max(20, min(20000, f_perceived))
+    f_perceived = round(f_perceived, 1)
+
+    if not is_running:
+        sound_freq = 0
+        status = "Running" if is_running else ("Paused" if t > 0 else "Stopped")
+        freq_text = f"{status}  |  Emitted: {f_emit} Hz  →  Perceived: {f_perceived} Hz  |  Time: {t:.1f} s"
+    else:
+        sound_freq = f_perceived
+        freq_text = f"🔊 Emitted: {f_emit} Hz  →  Perceived: {f_perceived} Hz  |  Time: {t:.1f} s"
 
     fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(x=[obs_x], y=[obs_y], mode='markers+text', marker=dict(size=20, color=ACCENT_COLOR), text=['👂'],
-                   textposition='middle center', textfont=dict(size=24)))
-    fig.add_trace(
-        go.Scatter(x=[src_x], y=[src_y], mode='markers+text', marker=dict(size=25, color=PRIMARY_COLOR), text=['🚗'],
-                   textposition='middle center', textfont=dict(size=24)))
+    fig.add_trace(go.Scatter(
+        x=[obs_x], y=[obs_y],
+        mode='markers+text',
+        marker=dict(size=16, color='#f093fb', line=dict(color='white', width=2)),
+        text=['👂 Observer'],
+        textposition='top center',
+        textfont=dict(size=14, color='#1f2937', family='Arial Black')
+    ))
 
-    for n in range(6):
-        t_emit = max(0, t - n * (0.8 / max(1, f_emit / 100)))
-        radius = SPEED_OF_SOUND * (t - t_emit)
-        if radius > 0:
-            opacity = max(0.05, 1 - (n / 6) * 0.7)
-            fig.add_shape(type="circle", xref="x", yref="y", x0=src_x - radius, y0=src_y - radius, x1=src_x + radius,
-                          y1=src_y + radius, line=dict(color=f"rgba(74,144,226,{opacity})", dash="dot", width=2))
+    # ✅ FIXED: Properly encode SVG as data URL
+    car_svg_clean = '''
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+    <g transform="translate(50,50) rotate({angle}) translate(-50,-50)">
+        <rect x="20" y="40" width="60" height="25" rx="5" fill="#667eea" stroke="white" stroke-width="2"/>
+        <path d="M 30 40 L 35 25 L 65 25 L 70 40 Z" fill="#667eea" stroke="white" stroke-width="2"/>
+        <rect x="36" y="28" width="12" height="10" rx="2" fill="#E3F2FD"/>
+        <rect x="52" y="28" width="12" height="10" rx="2" fill="#E3F2FD"/>
+        <circle cx="32" cy="65" r="6" fill="#2c3e50" stroke="white" stroke-width="1.5"/>
+        <circle cx="68" cy="65" r="6" fill="#2c3e50" stroke="white" stroke-width="1.5"/>
+        <circle cx="78" cy="45" r="2.5" fill="#FFF59D"/>
+        <circle cx="78" cy="55" r="2.5" fill="#FFF59D"/>
+    </g>
+</svg>
+    '''.format(angle=src_dir if src_type == 'moving' else 0)
+
+    svg_encoded = urllib.parse.quote(car_svg_clean.strip(), safe='')
+    svg_data_url = f"data:image/svg+xml;charset=utf-8,{svg_encoded}"
+
+    fig.add_layout_image(
+        dict(
+            source=svg_data_url,
+            x=src_x,
+            y=src_y,
+            xref="x",
+            yref="y",
+            sizex=40,
+            sizey=40,
+            xanchor="center",
+            yanchor="middle",
+            layer="above"
+        )
+    )
+
+    try:
+        wave_count = 6
+        for n in range(wave_count):
+            t_emit = max(0, t - n * (1.0 / max(1, f_emit)))
+            radius = SPEED_OF_SOUND * (t - t_emit)
+            if radius > 0:
+                opacity = 1 - (n / wave_count) * 0.7
+                fig.add_shape(type="circle",
+                              xref="x", yref="y",
+                              x0=src_x - radius, y0=src_y - radius,
+                              x1=src_x + radius, y1=src_y + radius,
+                              line=dict(color="rgba(102, 126, 234, " + str(opacity) + ")",
+                                        dash="dot", width=2))
+    except Exception:
+        pass
 
     fig.update_layout(
-        xaxis=dict(title="X Position (m)", range=[-300, 300]), yaxis=dict(title="Y Position (m)", range=[-150, 150]),
+        xaxis=dict(
+            title="X Position (meters)",
+            range=[-300, 300],
+            showgrid=True,
+            gridcolor='rgba(0,0,0,0.05)',
+            zeroline=True,
+            zerolinecolor='rgba(0,0,0,0.2)'
+        ),
+        yaxis=dict(
+            title="Y Position (meters)",
+            range=[-150, 150],
+            showgrid=True,
+            gridcolor='rgba(0,0,0,0.05)',
+            zeroline=True,
+            zerolinecolor='rgba(0,0,0,0.2)'
+        ),
         showlegend=False,
-        title=dict(text="Real-Time Doppler Effect Visualization", font=dict(size=20, color=TEXT_COLOR)),
-        plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)',
-        font=dict(family=FONT_FAMILY, color=SUBTLE_TEXT_COLOR), margin=dict(l=60, r=40, t=80, b=60)
+        title={
+            'text': "Real-Time Doppler Effect Visualization",
+            'x': 0.5,
+            'xanchor': 'center',
+            'font': {'size': 18, 'color': '#1f2937', 'family': 'Arial Black'}
+        },
+        plot_bgcolor='rgba(249, 250, 251, 0.5)',
+        paper_bgcolor='white',
+        margin=dict(l=60, r=60, t=80, b=60),
+        font=dict(family='Arial, sans-serif', size=12, color='#374151')
     )
+
     return fig, freq_text, sound_freq
 
 
+# === CLIENT-SIDE AUDIO CALLBACKS (Doppler) ===
 app.clientside_callback(
     """
     function(n_clicks) {
         if (!n_clicks || n_clicks < 1) return '';
+        if (typeof window._doppAudioInit === 'undefined') {
+            window._doppAudioInit = true;
+        }
         try {
             if (!window.audioCtx) {
                 window.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 window.gainNode = window.audioCtx.createGain();
                 window.gainNode.gain.setValueAtTime(1, window.audioCtx.currentTime);
                 window.gainNode.connect(window.audioCtx.destination);
-                window.oscillator = null; window.muted = false;
+                window.oscillator = null;
+                window.muted = false;
             }
-            if (window.audioCtx.state === 'suspended') window.audioCtx.resume();
-        } catch (e) { console.log('Audio init error:', e); }
+            if (window.audioCtx.state === 'suspended') {
+                window.audioCtx.resume();
+            }
+        } catch (e) {
+            console.log('Audio init error:', e);
+        }
         return '';
     }
     """,
-    Output('sound-init', 'children'), Input('start-btn', 'n_clicks')
+    Output('sound-init', 'children'),
+    Input('start-btn', 'n_clicks')
 )
+
 app.clientside_callback(
     """
     function(n_clicks) {
-        if (typeof window.audioCtx === 'undefined') return '';
+        if (typeof window._doppAudioInit === 'undefined') {
+            try {
+                window._doppAudioInit = true;
+                window.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                window.gainNode = window.audioCtx.createGain();
+                window.gainNode.gain.setValueAtTime(1, window.audioCtx.currentTime);
+                window.gainNode.connect(window.audioCtx.destination);
+                window.oscillator = null;
+                window.muted = false;
+                if (window.audioCtx.state === 'suspended') window.audioCtx.resume();
+            } catch(e) {}
+        }
+        if (!n_clicks) return '';
         window.muted = (n_clicks % 2) === 1;
         try {
-            window.gainNode.gain.setValueAtTime(window.muted ? 0 : 1, window.audioCtx.currentTime);
+            if (window.gainNode && window.audioCtx) {
+                window.gainNode.gain.setValueAtTime(window.muted ? 0 : 1, window.audioCtx.currentTime);
+            }
         } catch(e) {}
         return window.muted ? 'Muted' : 'Unmuted';
     }
     """,
-    Output('mute-label', 'children'), Input('mute-btn', 'n_clicks')
+    Output('mute-label', 'children'),
+    Input('mute-btn', 'n_clicks')
 )
+
 app.clientside_callback(
     """
     function(freq) {
         try {
-            if (!window.audioCtx) return '';
-            if (window.audioCtx.state === 'suspended') window.audioCtx.resume();
+            if (typeof window._doppAudioInit === 'undefined') {
+                window._doppAudioInit = true;
+                window.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                window.gainNode = window.audioCtx.createGain();
+                window.gainNode.gain.setValueAtTime(1, window.audioCtx.currentTime);
+                window.gainNode.connect(window.audioCtx.destination);
+                window.oscillator = null;
+                window.muted = false;
+            }
+            if (window.audioCtx && window.audioCtx.state === 'suspended') {
+                window.audioCtx.resume();
+            }
             if (freq && freq > 0 && !window.muted) {
                 if (!window.oscillator) {
                     window.oscillator = window.audioCtx.createOscillator();
@@ -433,20 +896,32 @@ app.clientside_callback(
                     window.oscillator.connect(window.gainNode);
                     window.oscillator.start();
                 }
-                window.oscillator.frequency.linearRampToValueAtTime(freq, window.audioCtx.currentTime + 0.05);
+                try {
+                    window.oscillator.frequency.linearRampToValueAtTime(freq, window.audioCtx.currentTime + 0.05);
+                } catch(e) {
+                    window.oscillator.frequency.setValueAtTime(freq, window.audioCtx.currentTime);
+                }
             } else {
                 if (window.oscillator) {
-                    window.oscillator.stop();
-                    window.oscillator.disconnect();
+                    try {
+                        window.oscillator.stop();
+                    } catch(e) {}
+                    try {
+                        window.oscillator.disconnect();
+                    } catch(e) {}
                     window.oscillator = null;
                 }
             }
-        } catch (e) { console.log('Sound clientside error:', e); }
+        } catch (e) {
+            console.log('Sound clientside error:', e);
+        }
         return '';
     }
     """,
-    Output('sound-div', 'children'), Input('sound-freq', 'data')
+    Output('sound-div', 'children'),
+    Input('sound-freq', 'data')
 )
+
 
 if __name__ == '__main__':
     app.run(debug=True)
