@@ -9,13 +9,80 @@ import plotly.graph_objs as go
 from scipy.fft import fft, fftfreq
 from scipy.signal import find_peaks
 from scipy.io import wavfile
-import urllib.parse  # ✅ Added for proper SVG encoding
+import urllib.parse
+import tensorflow as tf
+import librosa
+
+# ✅ New import for the fallback audio loader
+from pydub import AudioSegment
+
+# --- Model Integration Start ---
+
+# Load the pre-trained Keras model for velocity prediction
+MODEL_PATH = 'velocity_regressor_dense.h5'
+if os.path.exists(MODEL_PATH):
+    try:
+        velocity_model = tf.keras.models.load_model(MODEL_PATH, compile=False)
+        print("✅ Velocity prediction model loaded successfully.")
+    except Exception as e:
+        velocity_model = None
+        print(f"❌ Error loading velocity model: {e}")
+else:
+    velocity_model = None
+    print(f"⚠️ Velocity prediction model not found at '{MODEL_PATH}'. Prediction will be disabled.")
+
+# --- Model Integration End ---
+
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 app.config.suppress_callback_exceptions = True
 app.title = "Doppler + Aliasing Demo - Car Audio"
 
 SPEED_OF_SOUND = 343  # m/s
+
+
+# --- Model Integration Start ---
+
+def predict_velocity(audio_data, sr):
+    """
+    Processes audio data, extracts features, and predicts velocity using the loaded model.
+    NOTE: This function assumes the model was trained on the mean of MFCCs
+    from 2-second audio clips sampled at 22050 Hz.
+    """
+    if velocity_model is None:
+        return None
+    try:
+        target_sr = 22050
+        # Resample audio if the sample rate is different from what the model expects
+        if sr != target_sr:
+            audio_data = librosa.resample(y=audio_data.astype(np.float32), orig_sr=sr, target_sr=target_sr)
+
+        # Standardize audio clip length to 2 seconds
+        max_len_samples = int(target_sr * 2)
+        if len(audio_data) > max_len_samples:
+            start = (len(audio_data) - max_len_samples) // 2
+            audio_data = audio_data[start:start + max_len_samples]
+        else:
+            audio_data = librosa.util.fix_length(data=audio_data, size=max_len_samples)
+
+        # Extract MFCCs and take the mean across the time axis
+        mfccs = librosa.feature.mfcc(y=audio_data, sr=target_sr, n_mfcc=30)
+        mfccs_mean = np.mean(mfccs.T, axis=0)
+
+        # Reshape features for the model's input layer (1 sample, N features)
+        features = mfccs_mean.reshape(1, -1)
+
+        # Predict and return the scalar velocity value
+        prediction = velocity_model.predict(features)
+        return float(prediction[0][0])
+
+    except Exception as e:
+        print(f"Error during velocity prediction: {e}")
+        return None
+
+
+# --- Model Integration End ---
+
 
 # Helper to create labeled input fields
 def labeled_input(label, id, value, width=80):
@@ -124,7 +191,8 @@ app.layout = html.Div([
                             multiple=False,
                             accept='.wav'
                         ),
-                        html.Div(id='upload-status', style={'fontSize': '14px', 'color': '#6b7280', 'marginBottom': '10px'}),
+                        html.Div(id='upload-status',
+                                 style={'fontSize': '14px', 'color': '#6b7280', 'marginBottom': '10px'}),
                     ], style={
                         'padding': '20px',
                         'backgroundColor': 'white',
@@ -153,17 +221,21 @@ app.layout = html.Div([
                             value=22050,
                             disabled=True
                         ),
-                        html.Div(id='slider-value-display', style={'textAlign': 'center', 'marginTop': '10px', 'fontSize': '18px'})
-                    ], style={'padding': '20px', 'backgroundColor': '#f0fdf4', 'borderRadius': '10px', 'marginBottom': '20px'}),
+                        html.Div(id='slider-value-display',
+                                 style={'textAlign': 'center', 'marginTop': '10px', 'fontSize': '18px'})
+                    ], style={'padding': '20px', 'backgroundColor': '#f0fdf4', 'borderRadius': '10px',
+                              'marginBottom': '20px'}),
 
                     html.Div([
                         html.H4("🔊 Original Audio"),
-                        html.Audio(id='audio-orig', controls=True, style={'width': '100%', 'margin': '10px auto', 'display': 'block'})
+                        html.Audio(id='audio-orig', controls=True,
+                                   style={'width': '100%', 'margin': '10px auto', 'display': 'block'})
                     ]),
 
                     html.Div([
                         html.H4("🔊 Aliased Audio (Downsampled – No Anti-Aliasing)"),
-                        html.Audio(id='audio-alias', controls=True, style={'width': '100%', 'margin': '10px auto', 'display': 'block'})
+                        html.Audio(id='audio-alias', controls=True,
+                                   style={'width': '100%', 'margin': '10px auto', 'display': 'block'})
                     ])
                 ])
             ])
@@ -177,7 +249,7 @@ app.layout = html.Div([
             dbc.Row([
                 dbc.Col([
                     html.Div([
-                        html.H3("🎵 Frequency Analysis for Doppler", style={
+                        html.H3("🎵 Analysis & Prediction", style={
                             'color': '#667eea',
                             'marginBottom': '15px',
                             'fontSize': '24px',
@@ -189,18 +261,41 @@ app.layout = html.Div([
                             'fontWeight': '700',
                             'marginBottom': '15px'
                         }),
-                        html.Button('📊 Use This Frequency', id='use-audio-freq-btn', n_clicks=0, disabled=True, style={
-                            'padding': '10px 20px',
-                            'backgroundColor': '#667eea',
-                            'color': 'white',
-                            'border': 'none',
-                            'borderRadius': '8px',
-                            'fontSize': '14px',
-                            'fontWeight': '600',
-                            'cursor': 'pointer',
-                            'boxShadow': '0 4px 12px rgba(102, 126, 234, 0.3)',
-                            'transition': 'all 0.3s ease'
-                        })
+                        html.H4(id='predicted-velocity-display', children="Predicted Velocity: — m/s", style={
+                            'color': '#10b981',
+                            'fontSize': '20px',
+                            'fontWeight': '700',
+                            'marginBottom': '15px'
+                        }),
+                        html.Div([
+                            html.Button('📊 Use This Frequency', id='use-audio-freq-btn', n_clicks=0, disabled=True,
+                                        style={
+                                            'padding': '10px 20px',
+                                            'backgroundColor': '#667eea',
+                                            'color': 'white',
+                                            'border': 'none',
+                                            'borderRadius': '8px',
+                                            'fontSize': '14px',
+                                            'fontWeight': '600',
+                                            'cursor': 'pointer',
+                                            'boxShadow': '0 4px 12px rgba(102, 126, 234, 0.3)',
+                                            'transition': 'all 0.3s ease'
+                                        }),
+                            html.Button('🚗 Use This Velocity', id='use-audio-velocity-btn', n_clicks=0, disabled=True,
+                                        style={
+                                            'padding': '10px 20px',
+                                            'backgroundColor': '#10b981',
+                                            'color': 'white',
+                                            'border': 'none',
+                                            'borderRadius': '8px',
+                                            'fontSize': '14px',
+                                            'fontWeight': '600',
+                                            'cursor': 'pointer',
+                                            'boxShadow': '0 4px 12px rgba(16, 185, 129, 0.3)',
+                                            'transition': 'all 0.3s ease',
+                                            'marginLeft': '10px'
+                                        })
+                        ])
                     ], style={
                         'padding': '20px',
                         'backgroundColor': 'white',
@@ -418,8 +513,9 @@ app.layout = html.Div([
     dcc.Store(id='simulation-running', data=False),
     dcc.Store(id='time-elapsed', data=0),
     dcc.Store(id='sound-freq', data=0),
-    dcc.Store(id='uploaded-audio-data', data=None),  # { 'y': [...], 'sr': int, 'dominant_freq': float }
-    dcc.Store(id='aliasing-audio', data=None),       # raw float32 array for aliasing
+    dcc.Store(id='uploaded-audio-data', data=None),
+    dcc.Store(id='aliasing-audio', data=None),
+    dcc.Store(id='predicted-velocity-store', data=None),
 
     html.Div(id='sound-init', style={'display': 'none'}),
     html.Div(id='sound-div', style={'display': 'none'}),
@@ -434,6 +530,8 @@ app.layout = html.Div([
 
 
 # === MAIN UPLOAD HANDLER (feeds both sections) ===
+# (Keep all other code the same, only replace this function)
+
 @callback(
     [
         Output('uploaded-audio-data', 'data'),
@@ -446,7 +544,10 @@ app.layout = html.Div([
         Output('audio-orig', 'src'),
         Output('detected-freq-display', 'children'),
         Output('use-audio-freq-btn', 'disabled'),
-        Output('audio-spectrum-graph', 'figure')
+        Output('audio-spectrum-graph', 'figure'),
+        Output('predicted-velocity-display', 'children'),
+        Output('predicted-velocity-store', 'data'),
+        Output('use-audio-velocity-btn', 'disabled'),
     ],
     Input('upload-audio', 'contents'),
     State('upload-audio', 'filename')
@@ -455,40 +556,65 @@ def handle_upload_and_analyze(contents, filename):
     if contents is None:
         empty_fig = go.Figure()
         empty_fig.update_layout(title="No Audio Uploaded", xaxis_title="Frequency (Hz)", yaxis_title="Magnitude")
-        return [None] * 7 + ["", "Detected Frequency: — Hz", True, empty_fig]
+        return [None] * 7 + ["", "Detected Frequency: — Hz", True, empty_fig, "Predicted Velocity: — m/s", None, True]
 
+    # ✅ FINAL IMPROVEMENT: This entire `try...except` block is now updated for user-friendly error handling.
     try:
         _, b64 = contents.split(',')
         wav_bytes = base64.b64decode(b64)
         buffer = io.BytesIO(wav_bytes)
-        sr, data = wavfile.read(buffer)
 
-        # Normalize to float32 mono
-        if data.ndim > 1:
-            data = data.mean(axis=1)
-        if data.dtype == np.int16:
-            data_float = data.astype(np.float32) / 32768.0
-        elif data.dtype == np.int32:
-            data_float = data.astype(np.float32) / 2147483648.0
-        else:
-            data_float = data.astype(np.float32)
+        try:
+            # First, try loading with librosa
+            data_float, sr = librosa.load(buffer, sr=None, mono=True)
+        except Exception:
+            buffer.seek(0) # Rewind buffer for the next library
+            try:
+                # Fallback to pydub for more robust format handling
+                audio_segment = AudioSegment.from_file(buffer, format="wav")
+                sr = audio_segment.frame_rate
+                audio_segment = audio_segment.set_channels(1) # Ensure mono
+                samples = np.array(audio_segment.get_array_of_samples())
 
-        # === Aliasing Section Data ===
+                # Normalize based on sample width
+                if audio_segment.sample_width == 2: # 16-bit
+                    data_float = samples.astype(np.float32) / 32768.0
+                elif audio_segment.sample_width == 4: # 32-bit
+                    data_float = samples.astype(np.float32) / 2147483648.0
+                else: # 8-bit or other
+                    data_float = samples.astype(np.float32) / 128.0
+
+            except Exception as pydub_error:
+                # Provide a clean, user-facing error message
+                user_error_message = f"❌ Error: The file '{filename}' is not a valid or supported WAV file. Please try exporting it again from an audio editor like Audacity."
+                print(f"Pydub fallback failed: {pydub_error}") # Keep detailed error for your own debugging
+                empty_fig = go.Figure().update_layout(title="File Error")
+                return (None, None, user_error_message, True, 44100, 22050, {}, "",
+                        "Detected Frequency: — Hz", True, empty_fig,
+                        "Predicted Velocity: — m/s", None, True)
+
         aliasing_audio = data_float.tolist()
 
-        # === Doppler Frequency Analysis ===
+        # === Frequency Analysis ===
         N = len(data_float)
         yf = fft(data_float)
         xf = fftfreq(N, 1 / sr)[:N // 2]
         magnitude = 2.0 / N * np.abs(yf[0:N // 2])
-
         min_freq = 20
         min_idx = np.argmax(xf >= min_freq)
         peak_idx, _ = find_peaks(magnitude[min_idx:], height=np.max(magnitude) * 0.1, distance=100)
-
         dominant_freq = 500.0
         if len(peak_idx) > 0:
             dominant_freq = float(xf[min_idx + peak_idx[0]])
+
+        # --- Velocity Prediction ---
+        predicted_velocity = predict_velocity(data_float, sr)
+        if predicted_velocity is not None:
+            velocity_text = f"Predicted Velocity: {predicted_velocity:.2f} m/s"
+            velocity_button_disabled = False
+        else:
+            velocity_text = "Predicted Velocity: — m/s"
+            velocity_button_disabled = True
 
         # Spectrum plot
         fig = go.Figure()
@@ -504,48 +630,29 @@ def handle_upload_and_analyze(contents, filename):
             title="Uploaded Audio Frequency Spectrum",
             xaxis_title="Frequency (Hz)",
             yaxis_title="Magnitude",
-            xaxis_range=[0, 2000],
-            plot_bgcolor='rgba(249, 250, 251, 0.5)',
-            paper_bgcolor='white',
-            font=dict(family='Arial, sans-serif', size=12, color='#374151')
+            xaxis_range=[0, 2000]
         )
 
-        # Marks for slider
         marks = {i: f"{i // 1000}k" for i in range(1000, sr + 1, max(2000, sr // 8))}
         marks[sr] = f"{sr // 1000}k"
-
-        # Original audio for playback
         orig_src = make_playable_wav(data_float, sr)
-
-        doppler_data = {
-            'y': data_float.tolist(),
-            'sr': int(sr),
-            'dominant_freq': dominant_freq
-        }
+        doppler_data = {'y': data_float.tolist(), 'sr': int(sr), 'dominant_freq': dominant_freq}
 
         return (
-            doppler_data,
-            aliasing_audio,
-            f"✅ Loaded: {filename} | Fs = {sr} Hz",
-            False,
-            sr,
-            min(sr, 22050),
-            marks,
-            orig_src,
-            f"Detected Frequency: {dominant_freq:.1f} Hz",
-            False,
-            fig
+            doppler_data, aliasing_audio, f"✅ Loaded: {filename} | Fs = {sr} Hz",
+            False, sr, min(sr, 22050), marks, orig_src,
+            f"Detected Frequency: {dominant_freq:.1f} Hz", False, fig,
+            velocity_text, predicted_velocity, velocity_button_disabled
         )
 
     except Exception as e:
-        empty_fig = go.Figure()
-        empty_fig.update_layout(title="Error", xaxis_title="Frequency (Hz)", yaxis_title="Magnitude")
+        # Generic catch-all for any other unexpected errors
+        empty_fig = go.Figure().update_layout(title="Error")
         return (
-            None, None, f"❌ Error: {str(e)}", True, 44100, 22050, {}, "",
-            "Detected Frequency: — Hz", True, empty_fig
+            None, None, f"❌ An unexpected error occurred: {str(e)}", True, 44100, 22050, {}, "",
+            "Detected Frequency: — Hz", True, empty_fig,
+            "Predicted Velocity: — m/s", None, True
         )
-
-
 # === ALIASING CALLBACKS ===
 @callback(
     Output('audio-alias', 'src'),
@@ -582,6 +689,19 @@ def display_slider_value(value):
 
 
 # === DOPPLER CALLBACKS ===
+@callback(
+    [Output('source-speed', 'value'),
+     Output('source-type', 'value')],
+    Input('use-audio-velocity-btn', 'n_clicks'),
+    State('predicted-velocity-store', 'data'),
+    prevent_initial_call=True
+)
+def use_audio_velocity(n_clicks, velocity):
+    if velocity is not None:
+        return round(abs(velocity), 2), 'moving'
+    return no_update, no_update
+
+
 @callback(
     Output('freq-input', 'value'),
     Input('use-audio-freq-btn', 'n_clicks'),
@@ -731,7 +851,6 @@ def update_display(is_running, t, f_emit,
         textfont=dict(size=14, color='#1f2937', family='Arial Black')
     ))
 
-    # ✅ FIXED: Properly encode SVG as data URL
     car_svg_clean = '''
 <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
     <g transform="translate(50,50) rotate({angle}) translate(-50,-50)">
@@ -921,7 +1040,6 @@ app.clientside_callback(
     Output('sound-div', 'children'),
     Input('sound-freq', 'data')
 )
-
 
 if __name__ == '__main__':
     app.run(debug=True)
