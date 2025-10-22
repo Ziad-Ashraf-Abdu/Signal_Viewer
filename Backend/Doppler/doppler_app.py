@@ -12,8 +12,6 @@ from scipy.io import wavfile
 import urllib.parse
 import tensorflow as tf
 import librosa
-
-# ✅ New import for the fallback audio loader
 from pydub import AudioSegment
 
 # --- Model Integration Start ---
@@ -36,7 +34,7 @@ else:
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 app.config.suppress_callback_exceptions = True
-app.title = "Doppler + Aliasing Demo - Car Audio"
+app.title = "Doppler"
 
 SPEED_OF_SOUND = 343  # m/s
 
@@ -44,42 +42,38 @@ SPEED_OF_SOUND = 343  # m/s
 # --- Model Integration Start ---
 
 def predict_velocity(audio_data, sr):
-    """
-    Processes audio data, extracts features, and predicts velocity using the loaded model.
-    NOTE: This function assumes the model was trained on the mean of MFCCs
-    from 2-second audio clips sampled at 22050 Hz.
-    """
     if velocity_model is None:
         return None
     try:
         target_sr = 22050
-        # Resample audio if the sample rate is different from what the model expects
+        # Convert to float32 if not already
+        audio_data = np.asarray(audio_data, dtype=np.float32)
+
+        # Resample if needed
         if sr != target_sr:
-            audio_data = librosa.resample(y=audio_data.astype(np.float32), orig_sr=sr, target_sr=target_sr)
+            audio_data = librosa.resample(y=audio_data, orig_sr=sr, target_sr=target_sr)
 
-        # Standardize audio clip length to 2 seconds
-        max_len_samples = int(target_sr * 2)
-        if len(audio_data) > max_len_samples:
-            start = (len(audio_data) - max_len_samples) // 2
-            audio_data = audio_data[start:start + max_len_samples]
+        # Ensure exactly 2 seconds at 22050 Hz → 44100 samples
+        target_length = target_sr * 2  # 44100 samples
+        if len(audio_data) > target_length:
+            # Center crop
+            start = (len(audio_data) - target_length) // 2
+            audio_data = audio_data[start:start + target_length]
         else:
-            audio_data = librosa.util.fix_length(data=audio_data, size=max_len_samples)
+            # Pad with zeros at the end (librosa's default behavior)
+            audio_data = librosa.util.fix_length(data=audio_data, size=target_length)
 
-        # Extract MFCCs and take the mean across the time axis
-        mfccs = librosa.feature.mfcc(y=audio_data, sr=target_sr, n_mfcc=30)
-        mfccs_mean = np.mean(mfccs.T, axis=0)
+        # Extract MFCCs (same params as training!)
+        mfccs = librosa.feature.mfcc(y=audio_data, sr=target_sr, n_mfcc=30, n_fft=2048, hop_length=512)
+        mfccs_mean = np.mean(mfccs, axis=1)  # shape: (30,)
 
-        # Reshape features for the model's input layer (1 sample, N features)
+        # Predict
         features = mfccs_mean.reshape(1, -1)
-
-        # Predict and return the scalar velocity value
-        prediction = velocity_model.predict(features)
+        prediction = velocity_model.predict(features, verbose=0)
         return float(prediction[0][0])
-
     except Exception as e:
         print(f"Error during velocity prediction: {e}")
         return None
-
 
 # --- Model Integration End ---
 
@@ -135,7 +129,7 @@ def make_playable_wav(audio, sr):
 app.layout = html.Div([
     # Header
     html.Div([
-        html.H1("🚗 Doppler + Aliasing Demo – Car Audio", style={
+        html.H1("🚗 Doppler ", style={
             'textAlign': 'center',
             'color': 'white',
             'margin': '0',
@@ -558,36 +552,30 @@ def handle_upload_and_analyze(contents, filename):
         empty_fig.update_layout(title="No Audio Uploaded", xaxis_title="Frequency (Hz)", yaxis_title="Magnitude")
         return [None] * 7 + ["", "Detected Frequency: — Hz", True, empty_fig, "Predicted Velocity: — m/s", None, True]
 
-    # ✅ FINAL IMPROVEMENT: This entire `try...except` block is now updated for user-friendly error handling.
     try:
         _, b64 = contents.split(',')
         wav_bytes = base64.b64decode(b64)
         buffer = io.BytesIO(wav_bytes)
 
+        # Load audio with librosa or fallback to pydub
         try:
-            # First, try loading with librosa
             data_float, sr = librosa.load(buffer, sr=None, mono=True)
         except Exception:
-            buffer.seek(0) # Rewind buffer for the next library
+            buffer.seek(0)
             try:
-                # Fallback to pydub for more robust format handling
                 audio_segment = AudioSegment.from_file(buffer, format="wav")
                 sr = audio_segment.frame_rate
-                audio_segment = audio_segment.set_channels(1) # Ensure mono
+                audio_segment = audio_segment.set_channels(1)
                 samples = np.array(audio_segment.get_array_of_samples())
-
-                # Normalize based on sample width
-                if audio_segment.sample_width == 2: # 16-bit
+                if audio_segment.sample_width == 2:
                     data_float = samples.astype(np.float32) / 32768.0
-                elif audio_segment.sample_width == 4: # 32-bit
+                elif audio_segment.sample_width == 4:
                     data_float = samples.astype(np.float32) / 2147483648.0
-                else: # 8-bit or other
+                else:
                     data_float = samples.astype(np.float32) / 128.0
-
             except Exception as pydub_error:
-                # Provide a clean, user-facing error message
                 user_error_message = f"❌ Error: The file '{filename}' is not a valid or supported WAV file. Please try exporting it again from an audio editor like Audacity."
-                print(f"Pydub fallback failed: {pydub_error}") # Keep detailed error for your own debugging
+                print(f"Pydub fallback failed: {pydub_error}")
                 empty_fig = go.Figure().update_layout(title="File Error")
                 return (None, None, user_error_message, True, 44100, 22050, {}, "",
                         "Detected Frequency: — Hz", True, empty_fig,
@@ -595,17 +583,23 @@ def handle_upload_and_analyze(contents, filename):
 
         aliasing_audio = data_float.tolist()
 
-        # === Frequency Analysis ===
+        # === Frequency Analysis – Highest Significant Frequency ===
         N = len(data_float)
         yf = fft(data_float)
         xf = fftfreq(N, 1 / sr)[:N // 2]
         magnitude = 2.0 / N * np.abs(yf[0:N // 2])
-        min_freq = 20
-        min_idx = np.argmax(xf >= min_freq)
-        peak_idx, _ = find_peaks(magnitude[min_idx:], height=np.max(magnitude) * 0.1, distance=100)
-        dominant_freq = 500.0
-        if len(peak_idx) > 0:
-            dominant_freq = float(xf[min_idx + peak_idx[0]])
+
+        # Define significance threshold (e.g., 10% of max magnitude)
+        threshold = 0.1 * np.max(magnitude)
+        significant_indices = np.where(magnitude >= threshold)[0]
+
+        if len(significant_indices) > 0:
+            # Get the HIGHEST frequency with magnitude above threshold
+            highest_significant_idx = significant_indices[-1]
+            dominant_freq = float(xf[highest_significant_idx])
+        else:
+            # Fallback if no significant peaks
+            dominant_freq = 500.0
 
         # --- Velocity Prediction ---
         predicted_velocity = predict_velocity(data_float, sr)
@@ -622,7 +616,7 @@ def handle_upload_and_analyze(contents, filename):
         fig.add_vline(
             x=dominant_freq,
             line=dict(color='#ef4444', dash='dash', width=3),
-            annotation_text=f"Dominant: {dominant_freq:.1f} Hz",
+            annotation_text=f"Highest Sig.: {dominant_freq:.1f} Hz",
             annotation_position="top right",
             annotation_font=dict(size=14, color='#ef4444', family='Arial Black')
         )
@@ -630,12 +624,17 @@ def handle_upload_and_analyze(contents, filename):
             title="Uploaded Audio Frequency Spectrum",
             xaxis_title="Frequency (Hz)",
             yaxis_title="Magnitude",
-            xaxis_range=[0, 2000]
+            xaxis_range=[0, min(2000, sr // 2)]
         )
 
+        # Slider marks
         marks = {i: f"{i // 1000}k" for i in range(1000, sr + 1, max(2000, sr // 8))}
         marks[sr] = f"{sr // 1000}k"
+
+        # Original audio playable
         orig_src = make_playable_wav(data_float, sr)
+
+        # Store for Doppler section
         doppler_data = {'y': data_float.tolist(), 'sr': int(sr), 'dominant_freq': dominant_freq}
 
         return (
@@ -646,13 +645,13 @@ def handle_upload_and_analyze(contents, filename):
         )
 
     except Exception as e:
-        # Generic catch-all for any other unexpected errors
         empty_fig = go.Figure().update_layout(title="Error")
         return (
             None, None, f"❌ An unexpected error occurred: {str(e)}", True, 44100, 22050, {}, "",
             "Detected Frequency: — Hz", True, empty_fig,
             "Predicted Velocity: — m/s", None, True
         )
+
 # === ALIASING CALLBACKS ===
 @callback(
     Output('audio-alias', 'src'),
