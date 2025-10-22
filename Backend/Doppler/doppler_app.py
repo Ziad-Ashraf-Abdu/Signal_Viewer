@@ -45,7 +45,7 @@ def predict_velocity(audio_data, sr):
     if velocity_model is None:
         return None
     try:
-        target_sr = 22050
+        target_sr = 3000
         # Convert to float32 if not already
         audio_data = np.asarray(audio_data, dtype=np.float32)
 

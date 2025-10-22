@@ -15,6 +15,7 @@ import plotly.graph_objs as go
 import plotly.io as pio
 from dash import Dash, dcc, html, Input, Output, State, callback_context, no_update
 
+# --- Optional Import: Transformers (HuggingFace) ---
 try:
     from transformers import AutoModel
 
@@ -23,6 +24,7 @@ except Exception:
     TRANSFORMERS_AVAILABLE = False
     print("[Model Loader] transformers library not available. Install with: pip install transformers")
 
+# --- Optional Import: pyedflib (EDF file reading) ---
 # Try importing pyedflib for EDF reading (EEG). If missing, app will instruct user.
 try:
     import pyedflib
@@ -34,6 +36,7 @@ except Exception:
 import requests
 import json
 
+# --- Optional Import: Kaleido (Plotly Screenshotting) ---
 # Screenshot capability check
 try:
     import plotly.io as pio
@@ -45,16 +48,21 @@ except ImportError as e:
     SCREENSHOT_AVAILABLE = False
     print(f"[Screenshot] Warning: {e}")
     print("[Screenshot] Install with: pip install kaleido")
+
 # ---------- Configuration / Limits ----------
-MAX_EEG_SUBJECTS = 150  # limit EEG subjects loaded
-DEFAULT_MAX_EEG_SECONDS = 60  # read at most this many seconds per EDF to save memory (None to read whole file)
-DEFAULT_MAX_EEG_SAMPLES = None  # computed from seconds & fs when reading
+# limit EEG subjects loaded
+MAX_EEG_SUBJECTS = 150
+# read at most this many seconds per EDF to save memory (None to read whole file)
+DEFAULT_MAX_EEG_SECONDS = 60
+# computed from seconds & fs when reading
+DEFAULT_MAX_EEG_SAMPLES = None
 
 import plotly.io as pio
 from PIL import Image, ImageOps
 import tempfile
 
 
+# --- 2D Analysis Function: Graph Screenshot ---
 def capture_graph_screenshot(figure):
     """
     Capture a screenshot of the current plotly figure and return as bytes.
@@ -68,6 +76,7 @@ def capture_graph_screenshot(figure):
         return None
 
 
+# --- 2D Analysis Function: Teachable Machine ---
 def analyze_ecg_image_with_teachable_machine(img_bytes,
                                              model_url="https://teachablemachine.withgoogle.com/models/aV7sUMdvb/"):
     """
@@ -128,6 +137,7 @@ def analyze_ecg_image_with_teachable_machine(img_bytes,
         # Try to use a pre-converted Keras model if available
         keras_model_path = "teachable_machine_model.h5"
 
+        # Check if the local Keras model file exists
         if os.path.exists(keras_model_path):
             try:
                 import tensorflow as tf
@@ -176,6 +186,7 @@ def analyze_ecg_image_with_teachable_machine(img_bytes,
                 for pred in predictions:
                     print(f"  {pred['class']}: {pred['probability']:.4f}")
 
+                # Return a successful prediction dictionary
                 return {
                     "success": True,
                     "predictions": predictions,
@@ -201,6 +212,7 @@ def analyze_ecg_image_with_teachable_machine(img_bytes,
                         "probability": 0.0
                     })
 
+                # Return a dictionary indicating setup is required due to load failure
                 return {
                     "success": True,
                     "predictions": predictions,
@@ -235,6 +247,7 @@ def analyze_ecg_image_with_teachable_machine(img_bytes,
                 "probability": 0.0
             })
 
+        # Return a dictionary indicating setup is required because the model file is missing
         return {
             "success": True,
             "predictions": predictions,
@@ -265,6 +278,7 @@ def analyze_ecg_image_with_teachable_machine(img_bytes,
         print(f"[2D Analysis] Error: {e}")
         import traceback
         traceback.print_exc()
+        # Return a dictionary indicating a general failure
         return {
             "success": False,
             "error": f"Failed to analyze image: {str(e)}",
@@ -272,6 +286,7 @@ def analyze_ecg_image_with_teachable_machine(img_bytes,
         }
 
 
+# --- Required imports (add these at the top of your file) ---
 import os
 import time
 import json
@@ -281,6 +296,7 @@ import math
 
 import numpy as np
 
+# --- Optional Import: TensorFlow ---
 # TensorFlow imports are optional (for .h5 models)
 try:
     import tensorflow as tf
@@ -292,6 +308,7 @@ try:
 except Exception:
     TF_AVAILABLE = False
 
+# --- Optional Import: PyTorch ---
 # PyTorch imports are optional (for .pth/.pt models)
 try:
     import torch
@@ -302,6 +319,7 @@ try:
 except Exception:
     TORCH_AVAILABLE = False
 
+# --- Optional Import: SciPy ---
 # SciPy for filtering & resampling (optional)
 try:
     from scipy.signal import butter, filtfilt, resample
@@ -310,6 +328,7 @@ try:
 except Exception:
     SCIPY_AVAILABLE = False
 
+# --- Optional Import: HeartGPTClassifier ---
 # Try to import user's HeartGPTClassifier if present in project (preferred)
 try:
     # attempt a relative import if you placed the class in a module named 'models'
@@ -323,6 +342,7 @@ except Exception:
 # This is a compact version of the model architecture used in your training script.
 # It's included so the loader can reconstruct the model if the checkpoint contains config + state_dict.
 if HeartGPTClassifier is None and TORCH_AVAILABLE:
+    # --- Fallback Model Definition: TransformerBlock ---
     class TransformerBlock(nn.Module):
         def __init__(self, config):
             super().__init__()
@@ -347,7 +367,7 @@ if HeartGPTClassifier is None and TORCH_AVAILABLE:
             x = x + self.ffn(self.ln2(x))
             return x
 
-
+    # --- Fallback Model Definition: HeartGPTClassifier ---
     class HeartGPTClassifier(nn.Module):
         def __init__(self, config_or_dict):
             super().__init__()
@@ -368,9 +388,11 @@ if HeartGPTClassifier is None and TORCH_AVAILABLE:
             dropout = float(cfg.get('dropout', 0.2))
             num_classes = int(cfg.get('num_classes', 5))
 
+            # Store configuration
             self.config = {'n_embd': n_embd, 'n_head': n_head, 'n_layer': n_layer, 'block_size': block_size,
                            'dropout': dropout, 'num_classes': num_classes}
             self.block_size = block_size
+            # Convolutional frontend for feature extraction
             self.conv_frontend = nn.Sequential(
                 nn.Conv1d(1, n_embd, kernel_size=7, padding=3, bias=False),
                 nn.BatchNorm1d(n_embd),
@@ -379,11 +401,15 @@ if HeartGPTClassifier is None and TORCH_AVAILABLE:
                 nn.BatchNorm1d(n_embd),
                 nn.ReLU()
             )
+            # Linear projection for raw signal
             self.signal_projection = nn.Linear(1, n_embd)
+            # Positional embedding for sequence order
             self.position_embedding = nn.Embedding(block_size, n_embd)
             self.dropout = nn.Dropout(dropout)
+            # Transformer blocks
             self.blocks = nn.ModuleList([TransformerBlock(self.config) for _ in range(n_layer)])
             self.ln_f = nn.LayerNorm(n_embd)
+            # Classifier head
             hidden1 = n_embd * 2
             hidden2 = max(32, n_embd // 2)
             hidden3 = max(16, n_embd // 4)
@@ -410,56 +436,26 @@ if HeartGPTClassifier is None and TORCH_AVAILABLE:
             conv_out = conv_out.permute(0, 2, 1).contiguous()  # (B, T, C)
             x_lin = x.unsqueeze(-1)
             proj = self.signal_projection(x_lin)
+            # Combine convolutional features and raw projection
             x_emb = (conv_out + proj) * 0.5
             pos_ids = torch.arange(T, device=x.device)
             pos_emb = self.position_embedding(pos_ids).unsqueeze(0).expand(B, -1, -1)
+            # Add positional embedding
             x = self.dropout(x_emb + pos_emb)
+            # Pass through transformer blocks
             for b in self.blocks:
                 x = b(x)
             x = self.ln_f(x)
+            # Pooling (mean and max)
             x_mean = x.mean(dim=1)
             x_max = x.max(dim=1)[0]
             x = torch.cat([x_mean, x_max], dim=1)
+            # Final classification
             logits = self.classifier(x)
             return logits
 
-# --- Required imports (add these at the top of your file) ---
-import numpy as np
-import time
-from datetime import datetime
-import os
 
-# PyTorch
-try:
-    import torch
-    import torch.nn as nn
-    import torch.nn.functional as F
-
-    TORCH_AVAILABLE = True
-except ImportError:
-    TORCH_AVAILABLE = False
-    print("[Warning] PyTorch not available")
-
-# Transformers for HuggingFace models
-try:
-    from transformers import AutoModel
-
-    TRANSFORMERS_AVAILABLE = True
-except ImportError:
-    TRANSFORMERS_AVAILABLE = False
-    print("[Warning] Transformers library not available")
-
-# SciPy for signal processing
-try:
-    from scipy.signal import butter, filtfilt, resample
-
-    SCIPY_AVAILABLE = True
-except ImportError:
-    SCIPY_AVAILABLE = False
-    print("[Warning] SciPy not available - filtering/resampling disabled")
-
-
-# --- ConditionIdentificationModel with REAL class labels ---
+# --- 1D AI Model Wrapper Class ---
 class ConditionIdentificationModel:
     """
     Updated model loader & inference wrapper with actual diagnostic labels.
@@ -468,6 +464,7 @@ class ConditionIdentificationModel:
     EEG Classes: Based on TUAB (abnormal detection) and TUEV (event classification)
     """
 
+    # --- Class Definitions: Labels ---
     # Real ECG labels from PTB-XL, CODE, and other cardiovascular databases
     ECG_LABELS = [
         "Myocardial Infarction",
@@ -483,6 +480,7 @@ class ConditionIdentificationModel:
         "Schizophrenia", "Epilepsy", "Normal EEG"
     ]
 
+    # --- 1D Model: Initialization ---
     def __init__(
             self,
             ecg_model_path="hubert-ecg-small",
@@ -498,6 +496,7 @@ class ConditionIdentificationModel:
         self.confidence_threshold = confidence_threshold
         self.use_huggingface = use_huggingface
 
+        # Internal state variables
         self._ecg_model = None
         self._eeg_model = None
         self._active_model = None
@@ -520,6 +519,7 @@ class ConditionIdentificationModel:
         self.eeg_channels = 16
         self.eeg_filter_params = {'lowcut': 0.5, 'highcut': 70.0, 'order': 4}
 
+        # Auto-detect device (GPU/CPU)
         if device is None:
             if TORCH_AVAILABLE and torch.cuda.is_available():
                 self.device = torch.device('cuda')
@@ -531,6 +531,7 @@ class ConditionIdentificationModel:
         # Load appropriate labels on initialization
         self.load_labels(signal_type)
 
+    # --- 1D Model: Label Loading ---
     def load_labels(self, signal_type=None):
         """Load labels based on signal type - using hardcoded real labels"""
         if signal_type is None:
@@ -545,6 +546,7 @@ class ConditionIdentificationModel:
 
         return True
 
+    # --- 1D Model: Main Model Loader ---
     def load_model(self, signal_type=None):
         """Load appropriate model based on signal type"""
         if signal_type is None:
@@ -558,6 +560,7 @@ class ConditionIdentificationModel:
         else:  # EEG
             return self._load_eeg_model()
 
+    # --- 1D Model: ECG (HuBERT) Loader ---
     def _load_ecg_model(self):
         """Load ECG model (HuBERT-ECG)"""
         if self._ecg_model is not None and self._model_type == 'hubert-ecg':
@@ -578,6 +581,7 @@ class ConditionIdentificationModel:
                             model_id = f"Edoardo-BS/hubert-ecg-{self.ecg_model_path}"
 
                         print(f"[Model Loader] Loading from HuggingFace: {model_id}")
+                        # Load pre-trained model from HuggingFace
                         self._ecg_model = AutoModel.from_pretrained(model_id, trust_remote_code=True)
 
                         if self.device is not None:
@@ -596,6 +600,7 @@ class ConditionIdentificationModel:
                             if self.device is not None:
                                 self._ecg_model.classifier = self._ecg_model.classifier.to(self.device)
 
+                            # Initialize weights for the new classifier head
                             nn.init.xavier_uniform_(self._ecg_model.classifier.weight)
                             nn.init.zeros_(self._ecg_model.classifier.bias)
 
@@ -612,6 +617,7 @@ class ConditionIdentificationModel:
             # Try loading from local file
             if os.path.exists(self.ecg_model_path):
                 print(f"[Model Loader] Attempting to load ECG model from: {self.ecg_model_path}")
+                # Placeholder for local .pt/.h5 loading logic
                 return False
 
             print(f"[Model Loader] ECG model file not found: {self.ecg_model_path}")
@@ -623,6 +629,7 @@ class ConditionIdentificationModel:
             traceback.print_exc()
             return False
 
+    # --- 1D Model: EEG (BIOT) Loader ---
     def _load_eeg_model(self):
         """Load EEG model (BIOT EEG-PREST)"""
         if self._eeg_model is not None and self._model_type == 'biot-eeg':
@@ -666,6 +673,7 @@ class ConditionIdentificationModel:
             traceback.print_exc()
             return False
 
+    # --- 1D Model: BIOT Model Creation ---
     def _create_biot_model(self, checkpoint):
         """Create BIOT model architecture from checkpoint"""
         try:
@@ -703,6 +711,7 @@ class ConditionIdentificationModel:
             print(f"[Model Loader] Error creating BIOT model: {e}")
             return None
 
+    # --- 1D Model: ECG Preprocessing ---
     def _preprocess_ecg_signal(self, signal_data, original_fs=None):
         """Preprocess ECG signal for HuBERT-ECG"""
         sig = np.asarray(signal_data, dtype=np.float32).copy()
@@ -731,6 +740,7 @@ class ConditionIdentificationModel:
                 num_samples = int(len(sig) * self.ecg_sampling_rate / float(original_fs))
                 sig = resample(sig, num_samples)
             except Exception:
+                # Fallback to linear interpolation if resample fails
                 x_old = np.linspace(0, 1, len(sig))
                 x_new = np.linspace(0, 1, int(len(sig) * self.ecg_sampling_rate / float(original_fs)))
                 sig = np.interp(x_new, x_old, sig).astype(np.float32)
@@ -751,6 +761,7 @@ class ConditionIdentificationModel:
 
         return sig.astype(np.float32)
 
+    # --- 1D Model: EEG Preprocessing ---
     def _preprocess_eeg_signal(self, signal_data, original_fs=None):
         """Preprocess EEG signal for BIOT"""
         sig = np.asarray(signal_data, dtype=np.float32).copy()
@@ -779,6 +790,7 @@ class ConditionIdentificationModel:
                 num_samples = int(len(sig) * self.eeg_sampling_rate / float(original_fs))
                 sig = resample(sig, num_samples)
             except Exception:
+                # Fallback to linear interpolation
                 x_old = np.linspace(0, 1, len(sig))
                 x_new = np.linspace(0, 1, int(len(sig) * self.eeg_sampling_rate / float(original_fs)))
                 sig = np.interp(x_new, x_old, sig).astype(np.float32)
@@ -799,6 +811,7 @@ class ConditionIdentificationModel:
 
         return sig.astype(np.float32)
 
+    # --- 1D Model: Main Analysis Wrapper ---
     def analyze_signal_data(self, signal_data, sampling_rate=None, top_k=5,
                             signal_type=None, is_multi_channel=False, all_channels=None):
         """
@@ -841,6 +854,7 @@ class ConditionIdentificationModel:
             traceback.print_exc()
             return {"error": f"Inference failed: {e}", "timestamp": datetime.now().isoformat()}
 
+    # --- 1D Model: ECG Analysis Logic ---
     def _analyze_ecg(self, signal_data, sampling_rate, top_k, is_multi_channel, all_channels, start_time):
         """Analyze ECG data with HuBERT-ECG (12-lead)"""
         if self._model_type != 'hubert-ecg':
@@ -865,6 +879,7 @@ class ConditionIdentificationModel:
                 processed_lead = self._preprocess_ecg_signal(lead_data, original_fs=sampling_rate)
                 lead_signals.append(processed_lead)
             else:
+                # Pad with zeros if a lead is missing
                 processed_lead = np.zeros(self.ecg_sequence_length, dtype=np.float32)
                 lead_signals.append(processed_lead)
                 print(f"[Warning] Missing {lead_name}, using zeros")
@@ -876,10 +891,12 @@ class ConditionIdentificationModel:
         if self.device is not None:
             tensor = tensor.to(self.device)
 
+        # Run inference
         with torch.no_grad():
             inf_start = time.time()
             outputs = self._active_model(tensor)
 
+            # Get hidden states from model output
             if hasattr(outputs, 'last_hidden_state'):
                 hidden_states = outputs.last_hidden_state
             elif isinstance(outputs, tuple):
@@ -887,20 +904,24 @@ class ConditionIdentificationModel:
             else:
                 hidden_states = outputs
 
+            # Pool hidden states (mean pooling)
             pooled = hidden_states.mean(dim=1)
 
+            # Pass pooled output to the classifier head
             if hasattr(self._active_model, 'classifier'):
                 logits = self._active_model.classifier(pooled)
             else:
                 return {"error": "Model has no classification head"}
 
             inf_time = time.time() - inf_start
+            # Get probabilities
             probs_tensor = F.softmax(logits, dim=-1)
             probs = probs_tensor.cpu().numpy()[0].tolist()
 
         return self._format_results(probs, top_k, len(processed), sampling_rate,
                                     inf_time, start_time, signal_type="ECG", leads_used=12)
 
+    # --- 1D Model: EEG Analysis Logic ---
     def _analyze_eeg(self, signal_data, sampling_rate, top_k, is_multi_channel, all_channels, start_time):
         """Analyze EEG data with BIOT (16-channel)"""
         if self._model_type != 'biot-eeg':
@@ -925,6 +946,7 @@ class ConditionIdentificationModel:
                 processed_ch = self._preprocess_eeg_signal(ch_data, original_fs=sampling_rate)
                 channel_signals.append(processed_ch)
             else:
+                # Pad with zeros if a channel is missing
                 processed_ch = np.zeros(self.eeg_sequence_length, dtype=np.float32)
                 channel_signals.append(processed_ch)
                 print(f"[Warning] Missing {ch_name}, using zeros")
@@ -936,17 +958,20 @@ class ConditionIdentificationModel:
         if self.device is not None:
             tensor = tensor.to(self.device)
 
+        # Run inference
         with torch.no_grad():
             inf_start = time.time()
             logits = self._active_model(tensor)
             inf_time = time.time() - inf_start
 
+            # Get probabilities
             probs_tensor = F.softmax(logits, dim=-1)
             probs = probs_tensor.cpu().numpy()[0].tolist()
 
         return self._format_results(probs, top_k, processed.size, sampling_rate,
                                     inf_time, start_time, signal_type="EEG", leads_used=16)
 
+    # --- 1D Model: Result Formatting ---
     def _format_results(self, probs, top_k, signal_length, sampling_rate,
                         inf_time, start_time, signal_type="ECG", leads_used=1):
         """Format prediction results"""
@@ -969,6 +994,7 @@ class ConditionIdentificationModel:
         self._last_analysis_time = total_time
         self._total_predictions += 1
 
+        # Determine prediction quality based on top confidence
         quality = "Low"
         if pred_results:
             c = pred_results[0]['confidence']
@@ -977,6 +1003,7 @@ class ConditionIdentificationModel:
             elif c >= 0.6:
                 quality = "Medium"
 
+        # Return comprehensive results dictionary
         return {
             "success": True,
             "predictions": pred_results,
@@ -996,6 +1023,7 @@ class ConditionIdentificationModel:
             "total_conditions_available": len(self._labels)
         }
 
+    # --- 1D Model: Patient Data Analysis Helper ---
     def analyze_patient_data(self, patient_data, channel_name="signal_1", top_k=5, signal_type=None):
         """Analyze patient data (ECG or EEG)"""
         if signal_type is None:
@@ -1008,6 +1036,7 @@ class ConditionIdentificationModel:
             required_channels = self.ecg_channels if signal_type == "ECG" else self.eeg_channels
             is_multi_channel = len(available_channels) >= required_channels
 
+            # Estimate sampling rate from time column
             estimated_fs = self.ecg_sampling_rate if signal_type == "ECG" else self.eeg_sampling_rate
             if 'time' in patient_data.columns and len(patient_data) > 2:
                 diffs = np.diff(patient_data['time'].values.astype(float))
@@ -1017,6 +1046,7 @@ class ConditionIdentificationModel:
             # Use first channel as reference
             sig = patient_data[available_channels[0]].values
 
+            # Call the main analysis wrapper
             return self.analyze_signal_data(
                 sig,
                 sampling_rate=estimated_fs,
@@ -1028,6 +1058,7 @@ class ConditionIdentificationModel:
         except Exception as e:
             return {"error": f"Patient data analysis failed: {e}"}
 
+    # --- 1D Model: Info Getter ---
     def get_model_info(self):
         """Get model information"""
         return {
@@ -1050,9 +1081,11 @@ class ConditionIdentificationModel:
             "sample_eeg_conditions": self.EEG_LABELS[:10]
         }
 
+    # --- 1D Model: Readiness Check ---
     def is_ready(self):
         return self._model_loaded and self._active_model is not None
 
+    # --- 1D Model: Signal Type Switcher ---
     def switch_signal_type(self, signal_type):
         """
         Switch between ECG and EEG models
@@ -1087,6 +1120,7 @@ class ConditionIdentificationModel:
 
         return success
 
+    # --- 1D Model: List Detectable Conditions ---
     def list_conditions(self, signal_type=None, search_term=None):
         """
         List all available conditions the model can detect
@@ -1123,6 +1157,7 @@ class BIOTModel(nn.Module):
         super().__init__()
         self.config = config
 
+        # Extract model parameters from config
         input_channels = config.get('input_channels', 16)
         hidden_size = config.get('hidden_size', 512)
         num_layers = config.get('num_layers', 12)
@@ -1130,7 +1165,7 @@ class BIOTModel(nn.Module):
         dropout = config.get('dropout', 0.1)
         num_classes = config.get('num_classes', 50)
 
-        # Channel embedding
+        # Channel embedding layer
         self.channel_embedding = nn.Linear(input_channels, hidden_size)
 
         # Transformer encoder
@@ -1154,7 +1189,8 @@ class BIOTModel(nn.Module):
 
     def forward(self, x):
         # x: (batch, channels, time)
-        x = x.permute(0, 2, 1)  # (batch, time, channels)
+        # Permute to (batch, time, channels)
+        x = x.permute(0, 2, 1)
 
         # Embed channels
         x = self.channel_embedding(x)  # (batch, time, hidden)
@@ -1170,6 +1206,7 @@ class BIOTModel(nn.Module):
 
 
 # --- Update Global Instance ---
+# Initialize the global AI model instance
 AI_MODEL = ConditionIdentificationModel(
     ecg_model_path="small",  # Will load "Edoardo-BS/hubert-ecg-small"
     eeg_model_path="EEG-PREST-16-channels.ckpt",  # BIOT EEG model
@@ -1179,6 +1216,7 @@ AI_MODEL = ConditionIdentificationModel(
 
 
 # ---------- Channel Processing Functions ----------
+# --- Channel Derivation ---
 def derive_third_ecg_channel(sig1, sig2, method="difference"):
     """
     Derive a third ECG channel from two existing channels.
@@ -1215,6 +1253,7 @@ def derive_third_ecg_channel(sig1, sig2, method="difference"):
     return derived
 
 
+# --- Channel Selection Logic (Old, replaced by process_patient_channels) ---
 def get_display_channels(patient, dataset_type, show_all_channels=False):
     """
     Get the channels to display based on dataset type and available channels.
@@ -1261,6 +1300,7 @@ def get_display_channels(patient, dataset_type, show_all_channels=False):
     return available_channels
 
 
+# --- Channel Processing for Display ---
 def process_patient_channels(patient, dataset_type, show_all_channels=False):
     """
     Process patient data to ensure 3 channels for display.
@@ -1331,7 +1371,9 @@ def process_patient_channels(patient, dataset_type, show_all_channels=False):
 
 
 # ---------- Utilities ----------
+# --- Utility: Parse Number ---
 def parse_num(token, default=None):
+    """Robustly parse a number from a string token."""
     if token is None:
         return default
     token = str(token).strip()
@@ -1360,6 +1402,7 @@ def parse_num(token, default=None):
     return default
 
 
+# --- Utility: Find Dataset Directory ---
 def find_dataset_directory(dataset_type, root="."):
     """
     Updated dataset directory finder that looks for patient-organized structures.
@@ -1414,6 +1457,7 @@ def find_dataset_directory(dataset_type, root="."):
     return None
 
 
+# --- Utility: Get Subject ID ---
 def get_subject_id_from_path(path):
     """
     Heuristic to extract subject id from file path.
@@ -1436,6 +1480,7 @@ def get_subject_id_from_path(path):
     return os.path.basename(path)
 
 
+# --- Utility: Find Data Files ---
 def find_all_data_files(root_dir, file_extension):
     """
     Recursively find all data files with given extension in directory tree.
@@ -1465,6 +1510,7 @@ def find_all_data_files(root_dir, file_extension):
     return grouped_files
 
 
+# --- Data Loading: Concatenate ECG ---
 def concatenate_ecg_files(file_paths, max_samples=None):
     """
     Vertically concatenate multiple ECG .dat/.hea file pairs.
@@ -1544,6 +1590,7 @@ def concatenate_ecg_files(file_paths, max_samples=None):
     return combined_df, combined_header
 
 
+# --- Data Loading: Concatenate EEG ---
 def concatenate_eeg_files(file_paths, max_samples=None):
     """
     Vertically concatenate multiple EEG .edf files.
@@ -1608,6 +1655,7 @@ def concatenate_eeg_files(file_paths, max_samples=None):
     return combined_df, combined_header
 
 
+# --- Data Loading: Read .hea (Header) ---
 def read_header_file(path):
     """Read .hea header (robust)."""
     if not os.path.exists(path):
@@ -1616,11 +1664,13 @@ def read_header_file(path):
         lines = [ln.strip() for ln in fh.readlines() if ln.strip() != ""]
     if not lines:
         return None
+    # Parse the first line
     first = lines[0].split()
     record_name = first[0] if len(first) >= 1 else None
     num_signals = parse_num(first[1], default=2) if len(first) >= 2 else 2
     fs = parse_num(first[2], default=250.0) if len(first) >= 3 else 250.0
     num_samples = parse_num(first[3], default=225000) if len(first) >= 4 else 225000
+    # Sanitize parsed values
     try:
         num_signals = int(num_signals)
     except:
@@ -1633,10 +1683,12 @@ def read_header_file(path):
         num_samples = int(num_samples)
     except:
         num_samples = int(225000)
+    # Parse signal info lines
     signals_raw = []
     if len(lines) > 1:
         for ln in lines[1:]:
             signals_raw.append(ln.split())
+    # Return header as a dictionary
     return {
         "record_name": record_name,
         "num_signals": num_signals,
@@ -1646,18 +1698,22 @@ def read_header_file(path):
     }
 
 
+# --- Data Loading: Read .dat (Signal) ---
 def read_dat_file(dat_path, header_info, max_samples=None):
     """Read MIT/PhysioNet .dat interleaved int16. Return pandas DataFrame or None on failure."""
     if not os.path.exists(dat_path) or header_info is None:
         return None
     try:
+        # Read raw bytes as int16
         raw = np.fromfile(dat_path, dtype=np.int16)
         n_signals = max(1, int(header_info.get("num_signals", 2)))
         total_samples = raw.shape[0] // n_signals
         if total_samples <= 0:
             return None
         raw = raw[: total_samples * n_signals]
+        # Reshape into (samples, signals)
         mat = raw.reshape((total_samples, n_signals))
+        # Get gains from header, default to 200.0
         gains = np.ones(n_signals) * 200.0
         for i in range(min(n_signals, len(header_info.get("signals_raw", [])))):
             parts = header_info["signals_raw"][i]
@@ -1665,10 +1721,13 @@ def read_dat_file(dat_path, header_info, max_samples=None):
                 g = parse_num(parts[2], default=None)
                 if g and g > 0:
                     gains[i] = g
+        # Create DataFrame
         cols = [f"signal_{i + 1}" for i in range(n_signals)]
         df = pd.DataFrame(mat[:, :n_signals].astype(float) / gains[:n_signals], columns=cols)
+        # Add time column
         fs = header_info.get("sampling_frequency", 250.0)
         df.insert(0, "time", np.arange(df.shape[0]) / float(fs))
+        # Limit samples if requested
         if max_samples is not None:
             df = df.iloc[: int(max_samples)].reset_index(drop=True)
         return df
@@ -1677,6 +1736,7 @@ def read_dat_file(dat_path, header_info, max_samples=None):
         return None
 
 
+# --- Data Loading: Find Patient Directories ---
 def find_patient_directories(data_dir):
     """
     Find all patient directories in the dataset.
@@ -1699,6 +1759,7 @@ def find_patient_directories(data_dir):
     return sorted(patient_dirs)
 
 
+# --- Data Loading: Get Records for a Patient ---
 def get_patient_records(patient_dir):
     """
     Get all ECG records (hea/dat file pairs) for a specific patient.
@@ -1726,6 +1787,7 @@ def get_patient_records(patient_dir):
     return records
 
 
+# --- Data Loading: Load a Single Patient Record ---
 def load_patient_record(record_info, max_samples=None):
     """
     Load a single ECG record (hea + dat file pair).
@@ -1756,6 +1818,7 @@ def load_patient_record(record_info, max_samples=None):
     return df, header
 
 
+# --- Data Loading: Combine All Records for a Patient ---
 def combine_patient_records(patient_dir, max_samples=None, max_records_per_patient=None):
     """
     Combine all ECG records for a single patient into one DataFrame.
@@ -1820,6 +1883,7 @@ def combine_patient_records(patient_dir, max_samples=None, max_records_per_patie
     return combined_df, combined_header
 
 
+# --- Data Loading: Read .edf (EEG) ---
 def read_edf_file(edf_path, max_samples=None, attempts=8):
     """
     Read EDF file using pyedflib. Returns (df, header) or (None, None) and prints error.
@@ -1830,6 +1894,7 @@ def read_edf_file(edf_path, max_samples=None, attempts=8):
 
     last_exc = None
     backoff = 0.05
+    # Retry loop for file access issues
     for attempt in range(attempts):
         try:
             f = pyedflib.EdfReader(edf_path)
@@ -1840,12 +1905,14 @@ def read_edf_file(edf_path, max_samples=None, attempts=8):
                     n_signals = int(getattr(f, "signals_in_file", 0) or 0)
                 if n_signals <= 0:
                     raise ValueError("No signals in EDF")
+                # Get sample counts
                 nsamps = f.getNSamples()
                 if isinstance(nsamps, (list, tuple, np.ndarray)):
                     min_samples = int(min(nsamps))
                 else:
                     min_samples = int(nsamps)
                 use_samples = min_samples if max_samples is None else min(min_samples, int(max_samples))
+                # Get sampling frequency
                 fs = None
                 try:
                     fs = int(f.getSampleFrequency(0))
@@ -1858,6 +1925,7 @@ def read_edf_file(edf_path, max_samples=None, attempts=8):
                             fs = 250
                     except Exception:
                         fs = 250
+                # Read signal data
                 data = np.zeros((use_samples, n_signals), dtype=float)
                 for ch in range(n_signals):
                     sig = f.readSignal(ch)
@@ -1870,6 +1938,7 @@ def read_edf_file(edf_path, max_samples=None, attempts=8):
                         sig_use[:len(sig)] = sig
                         sig_use[len(sig):] = np.nan
                     data[:, ch] = sig_use
+                # Create DataFrame
                 cols = [f"signal_{i + 1}" for i in range(n_signals)]
                 df = pd.DataFrame(data, columns=cols)
                 df.insert(0, "time", np.arange(use_samples) / float(fs))
@@ -1881,6 +1950,7 @@ def read_edf_file(edf_path, max_samples=None, attempts=8):
                 }
                 return df, header
             finally:
+                # Ensure file is closed
                 try:
                     f.close()
                 except Exception:
@@ -1895,6 +1965,7 @@ def read_edf_file(edf_path, max_samples=None, attempts=8):
         except Exception as e:
             last_exc = e
             msg = str(e).lower()
+            # Retry on specific file access errors
             if ("already been opened" in msg) or ("file has already been opened" in msg) or (
                     "resource temporarily unavailable" in msg) or ("i/o error" in msg):
                 time.sleep(backoff)
@@ -1907,6 +1978,7 @@ def read_edf_file(edf_path, max_samples=None, attempts=8):
     return None, None
 
 
+# --- Signal Processing: Filtering ---
 def apply_signal_filtering(signal, fs, signal_type="ECG"):
     """Bandpass filter for ECG/EEG (simple, zero-phase)."""
     if signal is None or len(signal) < 3:
@@ -1919,7 +1991,9 @@ def apply_signal_filtering(signal, fs, signal_type="ECG"):
     low = max(low_cutoff / nyq, 1e-6)
     high = min(high_cutoff / nyq, 0.9999)
     try:
+        # 4th order Butterworth filter
         b, a = butter(4, [low, high], btype='band')
+        # Zero-phase filtering
         filtered = filtfilt(b, a, signal)
         return filtered
     except Exception:
@@ -1927,6 +2001,7 @@ def apply_signal_filtering(signal, fs, signal_type="ECG"):
 
 
 # ---------- Load patients ----------
+# --- Main Data Loading Function ---
 def load_patient_data(data_dir, dataset_type="ECG", max_samples=None, max_patients=None,
                       max_records_per_patient=5):
     """
@@ -2010,7 +2085,9 @@ def load_patient_data(data_dir, dataset_type="ECG", max_samples=None, max_patien
 
 
 # ---------- Feature functions ----------
+# --- Feature Extraction: ECG ---
 def extract_ecg_features(ecg_df, fs=250):
+    """Extract R-peaks and RR intervals from ECG signals."""
     features = {}
     if ecg_df is None:
         return features
@@ -2019,9 +2096,11 @@ def extract_ecg_features(ecg_df, fs=250):
             continue
         sig = ecg_df[col].values
         try:
+            # Find peaks (R-waves)
             height = np.quantile(sig, 0.85)
             peaks, _ = find_peaks(sig, height=height, distance=int(0.3 * fs))
             if peaks.size > 1:
+                # Calculate RR intervals
                 rr = np.diff(peaks) / fs
                 features[col] = {"peaks": peaks.tolist(), "rr": rr.tolist()}
             else:
@@ -2031,7 +2110,9 @@ def extract_ecg_features(ecg_df, fs=250):
     return features
 
 
+# --- Feature Extraction: EEG ---
 def extract_eeg_features(eeg_df, fs=250):
+    """Extract EEG power band features."""
     features = {}
     if eeg_df is None:
         return features
@@ -2039,6 +2120,7 @@ def extract_eeg_features(eeg_df, fs=250):
         from scipy import signal as sp_signal
     except Exception:
         return features
+    # Define EEG bands
     bands = {
         'delta': (0.5, 4),
         'theta': (4, 8),
@@ -2051,12 +2133,15 @@ def extract_eeg_features(eeg_df, fs=250):
             continue
         sig = eeg_df[col].values
         try:
+            # Calculate Power Spectral Density (PSD) using Welch's method
             freqs, psd = sp_signal.welch(sig, fs, nperseg=min(1024, max(256, len(sig) // 4)))
             band_pows = {}
             for band, (lo, hi) in bands.items():
+                # Calculate power in each band
                 mask = (freqs >= lo) & (freqs <= hi)
                 band_pows[band] = float(np.trapz(psd[mask], freqs[mask])) if np.any(mask) else 0.0
             total = sum(band_pows.values()) if sum(band_pows.values()) > 0 else 1.0
+            # Calculate relative power
             rel = {f"{k}_rel": v / total for k, v in band_pows.items()}
             features[col] = {**band_pows, **rel}
         except Exception:
@@ -2065,7 +2150,9 @@ def extract_eeg_features(eeg_df, fs=250):
 
 
 # ---------- Buffers & app ----------
+# --- Buffer Management ---
 def ensure_buffers_for_patient(pid, fs, display_window, rr_capacity=300):
+    """Create or resize playback buffers for a patient."""
     bufs = GLOBAL_DATA["buffers"]
     if pid not in bufs:
         blen = max(1, int(round(display_window * fs)))
@@ -2084,16 +2171,20 @@ def ensure_buffers_for_patient(pid, fs, display_window, rr_capacity=300):
         bufinfo = bufs[pid]
         desired_len = max(1, int(round(display_window * fs)))
         if bufinfo["len"] != desired_len:
+            # Resize buffer if display window changes
             bufinfo["signal_buffer"] = np.full(desired_len, np.nan)
             bufinfo["len"] = desired_len
             bufinfo["write_idx"] = 0
 
 
+# --- Dash App Initialization ---
 app = Dash(__name__)
 server = app.server
+# Global dictionary to hold all application state
 GLOBAL_DATA = {"patients": [], "buffers": {}, "dataset_type": "ECG"}
 
 
+# --- Screenshot Function (Redeclared for Dash context) ---
 def capture_graph_screenshot(figure):
     """Capture a screenshot of the current plotly figure and return as bytes."""
     if not SCREENSHOT_AVAILABLE:
@@ -2109,6 +2200,7 @@ def capture_graph_screenshot(figure):
 # ---------- STYLES (for new layout) ----------
 # These style dictionaries are used to create the modern UI.
 
+# Main application container style
 app_style = {
     'backgroundColor': '#F3F4F6',
     'color': '#111827',
@@ -2119,6 +2211,7 @@ app_style = {
     'overflow': 'hidden',
 }
 
+# Left sidebar style
 sidebar_style = {
     'width': '380px',
     'minWidth': '380px',
@@ -2131,6 +2224,7 @@ sidebar_style = {
     'borderRight': '1px solid #E5E7EB'
 }
 
+# Main content area style
 content_style = {
     'flex': 1,
     'padding': '20px',
@@ -2139,6 +2233,7 @@ content_style = {
     'gap': '20px'
 }
 
+# Reusable card component style
 card_style = {
     'backgroundColor': '#FFFFFF',
     'borderRadius': '8px',
@@ -2147,6 +2242,7 @@ card_style = {
     'boxShadow': '0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
 }
 
+# Card header style
 card_header_style = {
     'color': '#6B7280',
     'fontSize': '12px',
@@ -2156,6 +2252,7 @@ card_header_style = {
     'marginBottom': '12px'
 }
 
+# Default button style
 button_style = {
     'backgroundColor': '#3B82F6',
     'color': 'white',
@@ -2169,13 +2266,16 @@ button_style = {
     'transition': 'background-color 0.2s'
 }
 
+# AI button styles
 ai_button_1d_style = {**button_style, 'backgroundColor': '#10B981'}
 ai_button_2d_style = {**button_style, 'backgroundColor': '#8B5CF6'}
 
 # ---------- New Modern Layout ----------
+# Define the main layout of the Dash application
 app.layout = html.Div(style=app_style, children=[
     # --- Controls Sidebar ---
     html.Div(style=sidebar_style, children=[
+        # --- Title ---
         html.Div([
             html.H1("BioSignal Monitor", style={'fontSize': '24px', 'fontWeight': 'bold', 'margin': 0}),
             html.P("ECG & EEG Real-time Analysis", style={'color': '#6B7280', 'marginTop': '4px'})
@@ -2290,20 +2390,37 @@ app.layout = html.Div(style=app_style, children=[
 
     # --- Main Content Area ---
     html.Div(style=content_style, children=[
-        # --- Main Graph ---
-        html.Div(style={**card_style, 'flex': 1, 'minHeight': '400px', 'display': 'flex', 'flexDirection': 'column'},
-                 children=[
-                     dcc.Graph(id="main-graph", config={"displayModeBar": True}, style={'height': '100%'})
-                 ]),
 
-        # --- AI Analysis Results Section ---
-        html.Div(style={**card_style, 'minHeight': '350px', 'maxHeight': '350px', 'display': 'flex',
-                        'flexDirection': 'column'}, children=[
-            html.H2("AI Analysis Results", style=card_header_style),
-            html.Div(id="ai-analysis-output",
-                     style={"fontSize": "14px", 'overflowY': 'auto', 'flex': 1, 'paddingRight': '10px'}),
+        # --- NEW HEADER (from target image) ---
+        html.Div([
+            html.H1("Dashboard",
+                    style={'fontSize': '28px', 'fontWeight': 'bold', 'margin': 0, 'color': '#111827'}),
+            html.P("Signal overview & analysis",
+                   style={'color': '#6B7280', 'marginTop': '4px', 'fontSize': '16px'})
         ]),
-    ]),
+
+        # --- NEW ROW WRAPPER (to mimic target layout) ---
+        html.Div(style={'display': 'flex', 'flexDirection': 'row', 'gap': '20px', 'flex': 1, 'minHeight': 0,
+                        'width': '100%'}, children=[
+
+            # --- Main Graph (MODIFIED STYLE)---
+            html.Div(style={**card_style, 'flex': 2, 'display': 'flex', 'flexDirection': 'column'},
+                     children=[
+                         # The graph needs to fill this. 'height: 100%' is correct.
+                         dcc.Graph(id="main-graph", config={"displayModeBar": True},
+                                   style={'height': '100%', 'minHeight': '450px'})  # Keep a min-height
+                     ]),
+
+            # --- AI Analysis Results Section (MODIFIED STYLE) ---
+            html.Div(style={**card_style, 'flex': 1, 'display': 'flex',
+                            'flexDirection': 'column'}, children=[
+                html.H2("AI Analysis Results", style=card_header_style),
+                html.Div(id="ai-analysis-output",
+                         style={"fontSize": "14px", 'overflowY': 'auto', 'flex': 1, 'paddingRight': '10px'}),
+            ]),
+        ]),  # --- End of NEW FLEX ROW ---
+    ]),  # --- End of Main Content Area ---
+
 
     # --- Modal for Graph Preview ---
     html.Div(id='graph-preview-modal', style={
@@ -2323,17 +2440,21 @@ app.layout = html.Div(style=app_style, children=[
     ]),
 
     # --- Hidden Components ---
+    # Interval timer for playback
     dcc.Interval(id="interval", interval=200, n_intervals=0),
+    # Store for application state (playback, position)
     dcc.Store(id="app-state", data=None),
 ])
 
 
 # ---------- Callbacks (updated for 3-channel display) ----------
+# --- Callback: Update Visualization Options ---
 @app.callback(
     Output("viz-type", "options"),
     Input("domain-switch", "value")
 )
 def update_viz_options(domain):
+    """Dynamically update visualization options based on time/frequency domain."""
     if domain == 'time':
         return [
             {"label": "Standard Monitor", "value": "icu"},
@@ -2350,6 +2471,7 @@ def update_viz_options(domain):
         ]
 
 
+# --- Callback: Select All Channels ---
 @app.callback(
     Output("channels-dropdown", "value"),
     Input("select-all-channels-btn", "n_clicks"),
@@ -2357,6 +2479,7 @@ def update_viz_options(domain):
     prevent_initial_call=True
 )
 def select_all_channels(n_clicks, selected_patients):
+    """Handle the 'Select All Channels' button click."""
     if not n_clicks or not selected_patients:
         return no_update
 
@@ -2376,10 +2499,12 @@ def select_all_channels(n_clicks, selected_patients):
     if "ecg" not in patient or patient["ecg"] is None:
         return no_update
 
+    # Get all available signal columns
     all_channels = [c for c in patient["ecg"].columns if c.startswith("signal_")]
     return all_channels
 
 
+# --- Callback: Load Data ---
 @app.callback(
     [Output("load-output", "children"),
      Output("patients-dropdown", "options"),
@@ -2391,8 +2516,10 @@ def select_all_channels(n_clicks, selected_patients):
     prevent_initial_call=True
 )
 def load_data(nc, dataset_type, data_dir):
+    """Handle the 'Load Data' button click, finding and loading patient files."""
     if dataset_type == "EEG" and not PYEDFLIB_AVAILABLE:
         return "pyedflib not installed. Install with: pip install pyedflib", [], [], ""
+    # Auto-detect directory if not provided
     if not data_dir or data_dir.strip() == "":
         auto = find_dataset_directory(dataset_type, ".")
         if auto is None:
@@ -2403,6 +2530,7 @@ def load_data(nc, dataset_type, data_dir):
 
     GLOBAL_DATA["dataset_type"] = dataset_type
 
+    # Load patient data using the main loading function
     if dataset_type == "EEG":
         patients = load_patient_data(data_dir, dataset_type, max_samples=None, max_patients=MAX_EEG_SUBJECTS)
     else:
@@ -2411,9 +2539,11 @@ def load_data(nc, dataset_type, data_dir):
     if not patients:
         return f"No {dataset_type} patients found in {data_dir}.", [], [], ""
 
+    # Store loaded data in global state
     GLOBAL_DATA["patients"] = patients
     GLOBAL_DATA["buffers"] = {}
 
+    # Initialize buffers for each patient
     for idx, p in enumerate(patients):
         try:
             fs = float(p["header"].get("sampling_frequency", 250.0)) if p.get("header") else 250.0
@@ -2421,6 +2551,7 @@ def load_data(nc, dataset_type, data_dir):
         except Exception as e:
             print("Buffer init error", e)
 
+    # Populate dropdowns
     patient_options = [{"label": f"{p['name']} ({p['type']})", "value": idx} for idx, p in enumerate(patients)]
 
     # Get available channels from first patient
@@ -2441,12 +2572,14 @@ def load_data(nc, dataset_type, data_dir):
     return msg, patient_options, channel_options, channel_info
 
 
+# --- Callback: Adjust Interval ---
 @app.callback(
     Output("interval", "interval"),
     Input("chunk-ms", "value"),
     Input("speed", "value")
 )
 def adjust_interval(chunk_ms, speed):
+    """Adjust the main interval timer based on chunk size (speed is handled in update)."""
     try:
         cm = max(20, int(float(chunk_ms)))
     except:
@@ -2455,6 +2588,7 @@ def adjust_interval(chunk_ms, speed):
 
 
 # ---------- AI Analysis Callback with 1D and 2D Support ----------
+# --- Callback: Run AI Analysis ---
 @app.callback(
     Output("ai-analysis-output", "children"),
     [Input("ai-analyze-btn", "n_clicks"),
@@ -2875,6 +3009,7 @@ def run_ai_analysis(n_clicks_1d, n_clicks_2d, selected_patients, selected_channe
                         confidence_pct = f"{confidence * 100:.1f}%"
                         label = pred.get("label", "Unknown")
 
+                        # Determine color based on confidence
                         if confidence >= 0.8:
                             confidence_color = "#059669"
                             icon = "✓"
@@ -2946,6 +3081,7 @@ def run_ai_analysis(n_clicks_1d, n_clicks_2d, selected_patients, selected_channe
 
 
 # ---------- Helper to build each viz figure (updated for 3-channel display) ----------
+# --- Visualization Helper: XOR Overlay ---
 def xor_overlay_segments(prev_vals, new_vals, strict=True):
     """
     XOR overlay merge for two same-length 1D arrays:
@@ -2994,6 +3130,7 @@ def xor_overlay_segments(prev_vals, new_vals, strict=True):
     return prev_out, new_out
 
 
+# --- Visualization Helper: Calculate FFT ---
 def _calculate_fft(signal_segment, original_fs, resampling_freq):
     """
     Helper function to perform resampling and FFT calculation.
@@ -3056,6 +3193,7 @@ def _calculate_fft(signal_segment, original_fs, resampling_freq):
     return xf_plot, yf_plot, fs_new, computation_time, f_max
 
 
+# --- Visualization Helper: Main Figure Builder ---
 def make_viz_figure(viz_type, patients, selected_idxs, show_all_channels, state,
                     display_window_val=8.0, speed_val=1.0, collapse_flag=None,
                     selected_channels=None, overlay=True, resampling_freq=500.0,
@@ -3081,6 +3219,7 @@ def make_viz_figure(viz_type, patients, selected_idxs, show_all_channels, state,
         if "ecg" not in p or p["ecg"] is None:
             return create_empty_figure("No data for selected patient"), None, None
 
+        # Determine which channels to display
         if selected_channels and isinstance(selected_channels, (list, tuple)) and len(selected_channels) > 0:
             channels_to_display = [ch for ch in selected_channels if ch in p["ecg"].columns]
             if not channels_to_display:
@@ -3091,6 +3230,7 @@ def make_viz_figure(viz_type, patients, selected_idxs, show_all_channels, state,
             if not channels_to_display:
                 return create_empty_figure("No channels available"), None, None
 
+        # Get current data window
         fs = float(p.get("header", {}).get("sampling_frequency", 250.0))
         pos = int(state["pos"][pid]) if state and "pos" in state and pid < len(state["pos"]) else len(p["ecg"])
 
@@ -3105,6 +3245,7 @@ def make_viz_figure(viz_type, patients, selected_idxs, show_all_channels, state,
         # TIME DOMAIN VISUALIZATIONS
         # ==================================
         if domain == 'time':
+            # Apply time-domain downsampling if specified
             if sampling_period_ms is not None:
                 try:
                     ts_user = float(sampling_period_ms) / 1000.0
@@ -3119,7 +3260,7 @@ def make_viz_figure(viz_type, patients, selected_idxs, show_all_channels, state,
 
             unit = "mV" if GLOBAL_DATA.get("dataset_type", "ECG") == "ECG" else "µV"
 
-            # --- Standard Monitor ---
+            # --- Visualization: Standard Monitor ---
             if viz_type == "icu":
                 if overlay:
                     fig = go.Figure()
@@ -3143,7 +3284,7 @@ def make_viz_figure(viz_type, patients, selected_idxs, show_all_channels, state,
                     fig.update_layout(showlegend=False)
                 fig.update_layout(title=f"Time Domain Monitor: {p.get('name', 'Patient')}", xaxis_title="Time (s)")
 
-            # --- Ping-Pong Overlay ---
+            # --- Visualization: Ping-Pong Overlay ---
             elif viz_type == "pingpong":
                 prev_start = max(0, start - win)
                 prev_end = start
@@ -3189,7 +3330,7 @@ def make_viz_figure(viz_type, patients, selected_idxs, show_all_channels, state,
                     fig.update_layout(showlegend=True)
                 fig.update_layout(title=f"Ping-Pong Overlay: {p.get('name', 'Patient')}", xaxis_title="Time (s)")
 
-            # --- Polar View ---
+            # --- Visualization: Polar View ---
             elif viz_type == "polar":
                 time_vals = current_segment_df["time"].values
                 span = time_vals[-1] - time_vals[0] if len(time_vals) > 1 and time_vals[-1] != time_vals[0] else 1.0
@@ -3221,7 +3362,7 @@ def make_viz_figure(viz_type, patients, selected_idxs, show_all_channels, state,
                     fig.update_layout(showlegend=False)
                 fig.update_layout(title=f"Polar View: {p.get('name', 'Patient')}")
 
-            # --- Cross-Recurrence Plot ---
+            # --- Visualization: Cross-Recurrence Plot ---
             elif viz_type == "crossrec":
                 if len(channels_to_display) < 2:
                     return create_empty_figure("Need at least 2 channels for Cross-Recurrence"), None, None
@@ -3275,7 +3416,7 @@ def make_viz_figure(viz_type, patients, selected_idxs, show_all_channels, state,
         else:  # domain == 'frequency'
             final_fs_new = fs
 
-            # --- Frequency Spectrum ---
+            # --- Visualization: Frequency Spectrum ---
             if viz_type == "icu":
                 if overlay:
                     fig = go.Figure()
@@ -3308,7 +3449,7 @@ def make_viz_figure(viz_type, patients, selected_idxs, show_all_channels, state,
                     xaxis_title=f"Frequency (Hz) - Sampled at {final_fs_new:.1f} Hz"
                 )
 
-            # --- Spectral Comparison (Ping-Pong) ---
+            # --- Visualization: Spectral Comparison (Ping-Pong) ---
             elif viz_type == "pingpong":
                 prev_start = max(0, start - win)
                 prev_end = start
@@ -3368,7 +3509,7 @@ def make_viz_figure(viz_type, patients, selected_idxs, show_all_channels, state,
                     xaxis_title=f"Frequency (Hz) - Sampled at {final_fs_new:.1f} Hz"
                 )
 
-            # --- Spectral Polar View ---
+            # --- Visualization: Spectral Polar View ---
             elif viz_type == "polar":
                 if overlay:
                     fig = go.Figure()
@@ -3407,7 +3548,7 @@ def make_viz_figure(viz_type, patients, selected_idxs, show_all_channels, state,
                     fig.update_layout(showlegend=False)
                 fig.update_layout(title=f"Spectral Polar View: {p.get('name', 'Patient')}")
 
-            # --- Spectral Cross-Recurrence ---
+            # --- Visualization: Spectral Cross-Recurrence ---
             elif viz_type == "crossrec":
                 if len(channels_to_display) < 2:
                     return create_empty_figure("Need at least 2 channels for Cross-Recurrence"), None, None
@@ -3500,7 +3641,9 @@ def make_viz_figure(viz_type, patients, selected_idxs, show_all_channels, state,
         return create_empty_figure("Error building visualization"), None, None
 
 
+# --- Visualization Helper: Create Empty Figure ---
 def create_empty_figure(title="No data"):
+    """Create a blank Plotly figure with a title."""
     fig = go.Figure()
     fig.update_layout(
         template="plotly_white",
@@ -3515,6 +3658,7 @@ def create_empty_figure(title="No data"):
 
 
 # ---------- Combined update callback (updated for 3-channel display) ----------
+# --- Callback: Main Update Loop (Interval) ---
 @app.callback(
     [Output("main-graph", "figure"),
      Output("app-state", "data"),
@@ -3544,6 +3688,10 @@ def combined_update(n_intervals, n_play, n_pause, n_reset, domain, state,
                     selected, selected_channels, overlay_mode, viz_type,
                     speed, chunk_ms, display_window, resampling_freq,
                     sampling_period_ms):
+    """
+    Main callback for updating the graph and application state.
+    Triggered by the interval timer and control buttons.
+    """
     try:
         patients = GLOBAL_DATA.get("patients", [])
         if not patients:
@@ -3576,6 +3724,7 @@ def combined_update(n_intervals, n_play, n_pause, n_reset, domain, state,
             state["playing"] = False
             state["pos"] = [0] * len(patients)
             state["write_idx"] = [0] * len(patients)
+            # Reset all buffers
             for pid in list(GLOBAL_DATA.get("buffers", {}).keys()):
                 buf = GLOBAL_DATA["buffers"][pid]
                 buf["signal_buffer"].fill(np.nan)
@@ -3666,6 +3815,7 @@ def combined_update(n_intervals, n_play, n_pause, n_reset, domain, state,
         freq_card_style = {'display': 'none'}
         time_card_style = {'display': 'none'}
 
+        # --- Time Domain Analysis Card Logic ---
         if domain == 'time':
             time_card_style = {**card_style}
             if selected_idxs:
@@ -3702,6 +3852,7 @@ def combined_update(n_intervals, n_play, n_pause, n_reset, domain, state,
                         status_text = "Good Sampling" if is_good_sampling else "Aliasing Risk!"
                         status_color = "#10B981" if is_good_sampling else "#EF4444"
 
+                        # Create Nyquist info for Time Domain card
                         nyquist_output_time = html.Div([
                             html.P(f"Signal's Max Frequency (f_max): {f_max:.1f} Hz",
                                    style={'margin': '0px', 'fontSize': '12px'}),
@@ -3717,6 +3868,7 @@ def combined_update(n_intervals, n_play, n_pause, n_reset, domain, state,
                             ])
                         ], style={'padding': '10px', 'backgroundColor': '#F9FAFB', 'borderRadius': '6px'})
 
+        # --- Frequency Domain Analysis Card Logic ---
         elif domain == 'frequency':
             freq_card_style = {**card_style}
             if comp_time is not None:
@@ -3734,6 +3886,7 @@ def combined_update(n_intervals, n_play, n_pause, n_reset, domain, state,
                 is_aliasing = (resampling_freq or 500) < nyquist_rate
                 status_text = "Aliasing Risk!" if is_aliasing else "Good Sampling"
                 status_color = "#EF4444" if is_aliasing else "#10B981"
+                # Create Nyquist info for Frequency Domain card
                 nyquist_output = html.Div([
                     html.P(f"Signal's Max Frequency (f_max): {f_max:.1f} Hz",
                            style={'margin': '0px', 'fontSize': '12px'}),
@@ -3758,6 +3911,7 @@ def combined_update(n_intervals, n_play, n_pause, n_reset, domain, state,
             'display': 'none'}
 
 
+# --- Callback: Graph Click (Preview Modal) ---
 @app.callback(
     [Output("graph-preview-modal", "style"),
      Output("preview-graph", "figure")],
@@ -3775,15 +3929,18 @@ def combined_update(n_intervals, n_play, n_pause, n_reset, domain, state,
 )
 def display_graph_preview(clickData, n_close, state, selected_patients, overlay_mode, viz_type, speed, display_window,
                           resampling_freq, domain):
+    """Handle graph clicks to show a detailed preview modal of the clicked channel."""
     ctx = callback_context
     if not ctx.triggered or not ctx.triggered_id:
         return {'display': 'none'}, create_empty_figure()
 
     triggered_id = ctx.triggered_id
 
+    # Close modal
     if triggered_id == 'close-preview-btn':
         return {'display': 'none'}, create_empty_figure()
 
+    # Open modal
     if triggered_id == 'main-graph' and clickData:
         try:
             # Extract clicked channel name from customdata
@@ -3797,6 +3954,7 @@ def display_graph_preview(clickData, n_close, state, selected_patients, overlay_
             # Now we have the channel, let's build a large figure for it.
             patients = GLOBAL_DATA.get("patients", [])
 
+            # Re-use the main figure builder, but only for the clicked channel
             fig, _, _ = make_viz_figure(
                 viz_type,
                 patients,
@@ -3814,6 +3972,7 @@ def display_graph_preview(clickData, n_close, state, selected_patients, overlay_
             # Enhance the title for the preview
             fig.update_layout(title=f"Detailed View: {clicked_channel}", showlegend=False)
 
+            # Define the modal style to show it
             modal_style = {
                 'display': 'block', 'position': 'fixed', 'zIndex': '1000',
                 'left': 0, 'top': 0, 'width': '100%', 'height': '100%',
@@ -3831,9 +3990,10 @@ def display_graph_preview(clickData, n_close, state, selected_patients, overlay_
 
 
 # ---------- Run ----------
+# --- Main execution block ---
 if __name__ == "__main__":
 
     if not PYEDFLIB_AVAILABLE:
-        print("Warning: pyedflib not installed. EEG (EDF) support will be disabled until it's installed.")
+        print("Warning: pyedflib not installed. EEG (EDF) zz will be disabled until it's installed.")
+    # Start the Dash server
     app.run(debug=True, host="127.0.0.1", port=8052)
-
