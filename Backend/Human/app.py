@@ -66,37 +66,52 @@ def analyze_audio(y, sr):
 
 # Function to apply the AI model for audio reconstruction (upsampling + anti-aliasing)
 def apply_model_reconstruction(y_input, sr_input):
-    """Applies the AI model for reconstruction or falls back to standard resampling."""
+    """Applies the AI model for reconstruction or falls back to standard resampling.
+       Ensures input is first resampled to 16 kHz before model processing.
+    """
+    target_sr = 16000  # target rate for model and fallback
+
+    # Step 1: Resample input to 16kHz
+    if sr_input != target_sr:
+        y_input = librosa.resample(y_input, orig_sr=sr_input, target_sr=target_sr)
+        sr_input = target_sr  # update sr_input to match new rate
+
     if not MODEL_LOADED:
         print("Reconstruction model not available. Performing standard upsampling.")
-        # Fallback: standard Librosa resampling
-        return librosa.resample(y_input, orig_sr=sr_input, target_sr=16000)
+        return y_input  # already resampled to 16kHz
+
     try:
-        model_sr, model_len = 16000, 48000 # Model's expected sample rate and input length
-        # Initial upsampling to the model's target rate
-        y_upsampled = librosa.resample(y_input, orig_sr=sr_input, target_sr=model_sr)
+        model_len = 48000  # model's expected input length
         reconstructed_chunks = []
+
         # Process audio in chunks compatible with the model's input size
-        for i in range(0, len(y_upsampled), model_len):
-            chunk = y_upsampled[i:i + model_len]
+        for i in range(0, len(y_input), model_len):
+            chunk = y_input[i:i + model_len]
             len_chunk = len(chunk)
+
             # Pad the chunk if it's shorter than the model's expected length
             if len_chunk < model_len:
                 chunk = np.pad(chunk, (0, model_len - len_chunk), 'constant')
+
             # Prepare chunk for the model (add batch and channel dimensions)
             model_input = chunk[np.newaxis, ..., np.newaxis]
+
             # Get prediction from the anti-aliasing model
             pred_chunk = np.squeeze(ANTI_ALIASING_MODEL.predict(model_input, verbose=0))
+
             # Trim padding if it was added
             if len_chunk < model_len:
                 pred_chunk = pred_chunk[:len_chunk]
+
             reconstructed_chunks.append(pred_chunk)
+
         # Combine the processed chunks
         return np.concatenate(reconstructed_chunks) if reconstructed_chunks else np.array([])
+
     except Exception as e:
         print(f"❌ Error during model reconstruction: {e}")
-        # Fallback on error during prediction
-        return librosa.resample(y_input, orig_sr=sr_input, target_sr=16000)
+        return y_input  # fallback: already resampled to 16kHz
+
 
 
 # Function to create base64 encoded WAV data URL for HTML audio playback
