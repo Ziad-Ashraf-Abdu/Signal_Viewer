@@ -406,7 +406,18 @@ def process_audio(target_sr, model_clicks, original_data):
 
     # Always perform downsampling based on the slider value
     print(f"Downsampling to {target_sr} Hz...") # Add print statement
-    y_downsampled = librosa.resample(y_original, orig_sr=sr_original, target_sr=target_sr)
+    # Manual aliasing downsampling (no anti-alias filter)
+    if target_sr >= sr_original:
+        y_downsampled = y_original
+        downsampled_sr = sr_original
+    else:
+        ratio = sr_original / target_sr
+        new_len = int(len(y_original) / ratio)
+        indices = (np.arange(new_len) * ratio).astype(int)
+        indices = indices[indices < len(y_original)]
+        y_downsampled = y_original[indices]
+        downsampled_sr = target_sr
+
     current_downsampled_data = analyze_audio(y_downsampled, target_sr)
     print("Downsampling complete.") # Add print statement
 
