@@ -104,7 +104,7 @@ def labeled_input(label, id, value, width=80):
 def make_playable_wav(audio, sr):
     if len(audio) == 0:
         return ""
-    playback_sr = 22050
+    playback_sr = 3000
     if sr >= 3000:
         final_audio = audio
         final_sr = sr

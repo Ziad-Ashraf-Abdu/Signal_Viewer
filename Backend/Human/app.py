@@ -106,7 +106,7 @@ def create_audio_data(audio, sr):
     if len(audio_array) == 0:
         return ""
 
-    playback_sr = 22050  # A browser-safe sample rate
+    playback_sr = 3000  # A browser-safe sample rate
 
     # If the sample rate is too low for browsers, upsample without interpolation
     # This prevents pitch changes for extremely low sample rates.
