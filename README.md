@@ -1,4 +1,4 @@
-# Signal Viewer - Multi-Platform Signal Analysis 
+# Signal Viewer - Multi-Platform Signal 
 
 ## Overview
 
