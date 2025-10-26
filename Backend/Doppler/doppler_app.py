@@ -53,8 +53,8 @@ def predict_velocity(audio_data, sr):
         if sr != target_sr:
             audio_data = librosa.resample(y=audio_data, orig_sr=sr, target_sr=target_sr)
 
-        # Ensure exactly 2 seconds at 22050 Hz → 44100 samples
-        target_length = target_sr * 2  # 44100 samples
+
+        target_length = target_sr * 2  # 2 seconds × 3000 Hz = 6000 samples
         if len(audio_data) > target_length:
             # Center crop
             start = (len(audio_data) - target_length) // 2
@@ -659,6 +659,7 @@ def handle_upload_and_analyze(contents, filename):
     State('aliasing-audio', 'data'),
     State('uploaded-audio-data', 'data')
 )
+#manual aliasing due to aliasing filteration
 def update_aliasing(target_fs, audio_list, doppler_data):
     if audio_list is None or doppler_data is None:
         return ""
@@ -669,7 +670,7 @@ def update_aliasing(target_fs, audio_list, doppler_data):
         aliased = data
         aliased_sr = orig_sr
     else:
-        ratio = orig_sr / target_fs
+        ratio = orig_sr / target_fs#
         new_len = int(len(data) / ratio)
         indices = (np.arange(new_len) * ratio).astype(int)
         indices = indices[indices < len(data)]
