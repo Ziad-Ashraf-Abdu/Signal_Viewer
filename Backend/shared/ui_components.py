@@ -67,11 +67,18 @@ def create_card(title, content, card_id=None, style_overrides=None):
     else:
         card_content.append(content)
     
-    return dbc.Card(
-        dbc.CardBody(card_content),
-        style=style,
-        id=card_id
-    )
+    if card_id is not None:
+        return dbc.Card(
+            dbc.CardBody(card_content),
+            style=style,
+            id=card_id
+        )
+    else:
+        # If card_id is None, do not pass the id prop at all
+        return dbc.Card(
+            dbc.CardBody(card_content),
+            style=style
+        )
 
 
 def create_button(button_text, button_id, variant="primary", disabled=False, 

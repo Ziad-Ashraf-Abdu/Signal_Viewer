@@ -1,16 +1,15 @@
 import sys
 import os
-
-# Correct path setup - shared is in Backend/shared/
 current_dir = os.path.dirname(os.path.abspath(__file__))
-shared_path = os.path.join(current_dir, '..', 'shared')
-
-print(f"Looking for shared module at: {shared_path}")
-print(f"Path exists: {os.path.exists(shared_path)}")
-
-if shared_path not in sys.path:
-    sys.path.insert(0, shared_path)
-    print("✅ Shared path added to Python path")
+# We want to add the 'Backend' directory, which is one level up
+backend_path = os.path.normpath(os.path.join(current_dir, '..'))
+print(f"Looking for modules in: {backend_path}")
+if os.path.exists(backend_path):
+    print(f"Path exists: True")
+    sys.path.append(backend_path)  # <-- THIS IS THE FIX
+    print("✅ Backend path added to Python path")
+else:
+    print(f"Path exists: False. Could not find: {backend_path}")
 
 from dash import Dash
 import layout

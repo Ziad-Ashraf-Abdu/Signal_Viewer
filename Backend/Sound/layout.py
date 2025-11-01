@@ -39,7 +39,7 @@ def create_layout():
                 "classify-btn", 
                 variant="primary", 
                 disabled=True,
-                style={'marginTop': '15px'}
+                style_overrides={'marginTop': '15px'}
             ),
             html.Div(
                 id="upload-error-output",
@@ -52,10 +52,16 @@ def create_layout():
             style={'display': 'none'},
             children=[
                 create_card("Analysis Results", [
-                    html.Div(id="file-name", style={"marginBottom": "15px", "fontWeight": "600", "color": SUBTLE_TEXT_COLOR}),
-                    html.Div(id="classification-result", style={"fontSize": "22px", "fontWeight": "700", "textAlign": "center", "marginBottom": "20px", "padding": "20px", "borderRadius": "10px"}),
-                    html.Audio(id="audio-player", controls=True, style={"width": "100%", "marginTop": "10px", "marginBottom": "25px"}),
-                    create_button("🔬 Explore Sampling & Aliasing", "show-sampling-btn", variant="secondary", style={'display': 'none', 'marginTop': '15px'}),
+    html.Div(id="file-name", style={"marginBottom": "15px", "fontWeight": "600", "color": SUBTLE_TEXT_COLOR}),
+
+    # --- THIS IS THE ADDED WRAPPER ---
+    dcc.Loading(id="loading-original-prediction", type="circle", children=[
+        html.Div(id="classification-result", style={"fontSize": "22px", "fontWeight": "700", "textAlign": "center", "marginBottom": "20px", "padding": "20px", "borderRadius": "10px", 'minHeight': '60px'})
+    ]),
+    # --- END OF ADDED WRAPPER ---
+
+    html.Audio(id="audio-player", controls=True, style={"width": "100%", "marginTop": "10px", "marginBottom": "25px"}),
+    create_button("🔬 Explore Sampling & Aliasing", "show-sampling-btn", variant="secondary", style_overrides={'display': 'none', 'marginTop': '15px'}),
                     
                     html.Div(id="sampling-controls", style={'display': 'none', 'marginTop': '25px'}, children=[
                         html.Hr(style={'borderTop': f'2px solid {BORDER_COLOR}', 'margin': '25px 0'}),
