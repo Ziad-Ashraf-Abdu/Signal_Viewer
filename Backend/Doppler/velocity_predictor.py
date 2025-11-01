@@ -1,3 +1,4 @@
+# velocity_predictor.py
 import os
 import numpy as np
 import tensorflow as tf
@@ -15,8 +16,10 @@ class VelocityPredictor:
                 print("✅ Velocity prediction model loaded successfully.")
             except Exception as e:
                 print(f"❌ Error loading velocity model: {e}")
+                self.model = None
         else:
             print(f"⚠️ Model not found at '{path}'. Prediction disabled.")
+            self.model = None
 
     def predict(self, audio_data, sr):
         if self.model is None:

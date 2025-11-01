@@ -1,3 +1,4 @@
+# audio_processor.py
 import numpy as np
 import base64
 import io
@@ -28,25 +29,14 @@ class AudioProcessor:
         b64 = base64.b64encode(wav_bytes).decode()
         return f"data:audio/wav;base64,{b64}"
 
+    from scipy.fft import fft, fftfreq
+    import numpy as np
+
     def detect_dominant_frequency(self, data, sr):
         N = len(data)
         yf = fft(data)
         xf = fftfreq(N, 1 / sr)[:N // 2]
         magnitude = 2.0 / N * np.abs(yf[0:N // 2])
-        threshold = 0.1 * np.max(magnitude)
-        significant_indices = np.where(magnitude >= threshold)[0]
-        if len(significant_indices) > 0:
-            highest_significant_idx = significant_indices[-1]
-            return float(xf[highest_significant_idx])
-        else:
-            return 500.0
+        dominant_idx = np.argmax(magnitude)
+        return float(xf[dominant_idx])
 
-    def downsample_without_anti_aliasing(self, data, orig_sr, target_fs):
-        if target_fs >= orig_sr:
-            return data, orig_sr
-        ratio = orig_sr / target_fs
-        new_len = int(len(data) / ratio)
-        indices = (np.arange(new_len) * ratio).astype(int)
-        indices = indices[indices < len(data)]
-        aliased = data[indices]
-        return aliased, target_fs
